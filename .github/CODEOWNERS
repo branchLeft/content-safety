@@ -8,3 +8,10 @@
 # may add to this file and may never drop a shared line, and rewriting that
 # line in place is dropping it.
 * @reviewer-agent-branchLeft @branchLeft/branchleft-admin
+
+/.standardsignore        @branchLeft/branchleft-admin
+/.standards.mode         @branchLeft/branchleft-admin
+/.docs-lint*             @branchLeft/branchleft-admin
+/tools/floors.tsv        @branchLeft/branchleft-admin
+/.standards-db-tooling   @branchLeft/branchleft-admin
+/.github/                @branchLeft/branchleft-admin
