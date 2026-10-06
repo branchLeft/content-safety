@@ -9,4 +9,3 @@ __pycache__/
 .env
 .env.*
 
-graphify-out/
