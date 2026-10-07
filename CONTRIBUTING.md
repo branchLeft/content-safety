@@ -2,9 +2,17 @@
 
 This repo follows the [org-wide contribution guide](https://github.com/branchLeft/.github/blob/main/CONTRIBUTING.md) — fork, branch, PR, squash-merge, one required review. This file covers what's specific to `content-safety`.
 
-## Status
+## Setup and checks
 
-Scaffolding only. No implementation language is chosen yet; the first story that writes code chooses it, and this file gains the setup, checks and pre-commit sections that decision requires.
+TypeScript on the Node version in `.nvmrc`. `npm ci` needs a GitHub token with `read:packages` in `NODE_AUTH_TOKEN`, because two dev dependencies are on GitHub Packages. Then:
+
+```sh
+npm run typecheck
+npm run build
+npm run coverage
+```
+
+No test may reach a live service or hold a real credential. The hash endpoint is a local stub.
 
 ## Comment style
 

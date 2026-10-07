@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  // The shared base sets `noEmit`; this is the one config that produces output.
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["test/**/*.ts"]
+}

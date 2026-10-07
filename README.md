@@ -2,7 +2,33 @@
 
 The safety service for the branchLeft Ghost platform. It checks uploaded media against known-abuse hash lists (Arachnid Shield) before publication. It is designed to be reusable by other organisations later, so it carries no Ghost-specific assumptions.
 
-**Status: scaffolding only.** No implementation exists yet. See `CLAUDE.md` for the design pointers and the language decision this repo is waiting on.
+**Status: the service core, tested locally, not deployed.** No credential exists yet, so it is built against the published API specification and a local stub.
+
+## What is here
+
+| Module | Role |
+|---|---|
+| `src/contract.ts` | The interfaces: `Check`, `Verdict`, `Policy`, `Decision`, `VerdictCache`, `AuditSink`, `PdqLookup`. |
+| `src/pdq-hash.ts` | The only way to make a `PdqHash`: the canonical base64 of exactly 32 bytes. |
+| `src/arachnid-client.ts` | `POST /v1/pdq` with a body of hashes. No other endpoint has a code path. |
+| `src/pdq-known-material-check.ts` | The blocking media check: cache first, one batched lookup, a timeout after which every waiting hash is `unavailable`. |
+| `src/verdict-cache.ts` | Positives kept for ever, negatives for a bounded lifetime, `unavailable` never. |
+| `src/policy.ts` | `decide(verdict, context)`: the two tiers, and the demo-versus-tenant split for tier two only. |
+| `src/audit.ts` | Digests, verdicts and decisions. Never bytes, never a thumbnail. |
+| `src/safety-service.ts` | Hashes in, one audited decision per hash out. |
+
+## What a verdict leads to
+
+| Verdict | Decision | Demo | Tenant |
+|---|---|---|---|
+| `exact` + `csam` | tier two, irreversible | withhold, seal, start the reporting clock, page, kill the slot quietly | the same, but the site keeps serving |
+| `near` + `csam` | tier one | withhold and freeze | withhold and freeze |
+| any `harmful-abusive-material` | tier one | withhold and freeze | withhold and freeze |
+| `test` | as the match type selects, marked as a control | | |
+| `no-known-match` | allow | | |
+| `unavailable` | hold | | |
+
+A context whose safety axis is not fully on, or whose estate is unknown, is held. An allow that cannot be audited is held.
 
 ## License
 
