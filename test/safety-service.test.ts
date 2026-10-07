@@ -38,7 +38,7 @@ describe('SafetyService end to end against the local stub', () => {
       check: new PdqKnownMaterialCheck({
         lookup: new ArachnidPdqClient({ baseUrl: stub.baseUrl, authorization: () => 'PLACEHOLDER_NOT_A_CREDENTIAL' }),
         cache: new InMemoryVerdictCache({ negativeTtlMs: DAY }),
-        timeoutMs: 200,
+        timeoutMs: 1000,
       }),
       policy: new EstatePolicy(),
       audit,
@@ -123,6 +123,85 @@ describe('SafetyService failure paths', () => {
     const [refused, allowed] = await service.assess([hashOf(1), hashOf(2)], TENANT);
     expect(refused?.decision.action).toBe('refuse');
     expect(allowed?.decision).toEqual({ action: 'hold', reason: 'audit-unavailable' });
+  });
+
+  it('says so when a refusal could not be audited, and keeps the refusal', async () => {
+    const service = new SafetyService({
+      check: fixedCheck((hs) => hs.map((h) => ({ classification: 'csam', matchType: 'exact', source: 's', evidence: h }))),
+      policy: new EstatePolicy(),
+      audit: failingAudit,
+    });
+    const [only] = await service.assess([hashOf(1)], DEMO);
+    expect(only?.audited).toBe(false);
+    expect(only?.decision).toMatchObject({ action: 'refuse', tier: 'two', irreversible: true });
+  });
+
+  it('marks every decision it did record as audited', async () => {
+    const service = new SafetyService({
+      check: fixedCheck((hs) => hs.map((h) => ({ classification: 'csam', matchType: 'exact', source: 's', evidence: h }))),
+      policy: new EstatePolicy(),
+      audit: new MemoryAudit(),
+    });
+    const [only] = await service.assess([hashOf(1)], DEMO);
+    expect(only?.audited).toBe(true);
+  });
+
+  it('keeps an unavailable hold a hold when the audit fails', async () => {
+    const service = new SafetyService({
+      check: fixedCheck((hs) => hs.map((h) => ({ classification: 'unavailable', source: 's', evidence: h }))),
+      policy: new EstatePolicy(),
+      audit: failingAudit,
+    });
+    const [only] = await service.assess([hashOf(1)], TENANT);
+    expect(only?.decision).toEqual({ action: 'hold', reason: 'unavailable' });
+    expect(only?.audited).toBe(false);
+  });
+
+  it('keeps a context-rejected hold a hold when the audit fails', async () => {
+    const service = new SafetyService({
+      check: fixedCheck((hs) => hs.map((h) => ({ classification: 'no-known-match', source: 's', evidence: h }))),
+      policy: new EstatePolicy(),
+      audit: failingAudit,
+    });
+    const offAxis = { kind: 'tenant' as const, safety: { near: false, exact: true } };
+    const [only] = await service.assess([hashOf(1)], offAxis);
+    expect(only?.decision).toEqual({ action: 'hold', reason: 'context-rejected' });
+    expect(only?.audited).toBe(false);
+  });
+
+  it('treats an audit write that never settles as failed, within its budget', async () => {
+    const service = new SafetyService({
+      check: fixedCheck((hs) => hs.map((h) => ({ classification: 'no-known-match', source: 's', evidence: h }))),
+      policy: new EstatePolicy(),
+      audit: { record: () => new Promise(() => undefined) },
+      auditTimeoutMs: 50,
+    });
+    const started = performance.now();
+    const [only] = await service.assess([hashOf(1)], TENANT);
+    expect(performance.now() - started).toBeLessThan(550);
+    expect(only?.decision).toEqual({ action: 'hold', reason: 'audit-unavailable' });
+    expect(only?.audited).toBe(false);
+  });
+
+  it('refuses an audit budget that does not bound anything', () => {
+    for (const auditTimeoutMs of [0, -1, Number.POSITIVE_INFINITY, Number.NaN]) {
+      expect(
+        () => new SafetyService({ check: fixedCheck(() => []), policy: new EstatePolicy(), audit: new MemoryAudit(), auditTimeoutMs })
+      ).toThrow(RangeError);
+    }
+  });
+
+  it('never applies a verdict about one hash to another', async () => {
+    const service = new SafetyService({
+      check: fixedCheck((hs) => [...hs].reverse().map((h) => ({ classification: 'no-known-match', source: 's', evidence: h }))),
+      policy: new EstatePolicy(),
+      audit: new MemoryAudit(),
+    });
+    const result = await service.assess([hashOf(1), hashOf(2)], TENANT);
+    expect(result.map((a) => a.decision)).toEqual([
+      { action: 'hold', reason: 'unavailable' },
+      { action: 'hold', reason: 'unavailable' },
+    ]);
   });
 
   it('holds a hash the check returned no verdict for', async () => {

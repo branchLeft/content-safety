@@ -1,4 +1,5 @@
 import type { BatchCheck, PdqHash, PdqLookup, Verdict, VerdictCache } from './contract.js';
+import { assertBudget, withDeadline } from './deadline.js';
 
 export const PDQ_CHECK_SOURCE = 'arachnid-shield-pdq';
 
@@ -9,9 +10,12 @@ export interface PdqKnownMaterialCheckOptions {
   readonly timeoutMs: number;
   /** Hashes per request. Incidental: the published contract names no limit. */
   readonly maxBatchSize?: number;
+  /** Budget for one cache read or write. A read past it is a miss; a write past it is dropped. */
+  readonly cacheTimeoutMs?: number;
 }
 
 const DEFAULT_MAX_BATCH = 100;
+const DEFAULT_CACHE_TIMEOUT_MS = 250;
 
 /**
  * Hash-only by construction: its subject is a `PdqHash`, so there is no
@@ -24,6 +28,7 @@ export class PdqKnownMaterialCheck implements BatchCheck<PdqHash> {
   readonly #lookup: PdqLookup;
   readonly #cache: VerdictCache;
   readonly #timeoutMs: number;
+  readonly #cacheTimeoutMs: number;
   readonly #maxBatch: number;
 
   constructor(options: PdqKnownMaterialCheckOptions) {
@@ -37,6 +42,7 @@ export class PdqKnownMaterialCheck implements BatchCheck<PdqHash> {
     this.#lookup = options.lookup;
     this.#cache = options.cache;
     this.#timeoutMs = options.timeoutMs;
+    this.#cacheTimeoutMs = assertBudget('cacheTimeoutMs', options.cacheTimeoutMs ?? DEFAULT_CACHE_TIMEOUT_MS);
     this.#maxBatch = maxBatch;
   }
 
@@ -99,7 +105,7 @@ export class PdqKnownMaterialCheck implements BatchCheck<PdqHash> {
 
   async #safeCacheGet(hash: PdqHash): Promise<Verdict | undefined> {
     try {
-      return await this.#cache.get(hash);
+      return await withDeadline(this.#cache.get(hash), this.#cacheTimeoutMs, 'cache read');
     } catch {
       return undefined;
     }
@@ -107,7 +113,7 @@ export class PdqKnownMaterialCheck implements BatchCheck<PdqHash> {
 
   async #safeCachePut(verdict: Verdict): Promise<void> {
     try {
-      await this.#cache.put(verdict);
+      await withDeadline(this.#cache.put(verdict), this.#cacheTimeoutMs, 'cache write');
     } catch {
       // A cache that cannot store only costs a repeat lookup next time.
     }

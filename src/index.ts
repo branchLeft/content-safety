@@ -1,4 +1,5 @@
 export type {
+  Assessment,
   AuditRecord,
   AuditSink,
   BatchCheck,
@@ -25,6 +26,7 @@ export { PDQ_CHECK_SOURCE, PdqKnownMaterialCheck } from './pdq-known-material-ch
 export type { PdqKnownMaterialCheckOptions } from './pdq-known-material-check.js';
 export { EstatePolicy } from './policy.js';
 export { SafetyService } from './safety-service.js';
-export type { Assessment, SafetyServiceOptions } from './safety-service.js';
-export { InMemoryVerdictCache, isPositive } from './verdict-cache.js';
+export type { SafetyServiceOptions } from './safety-service.js';
+export { DEFAULT_MAX_ENTRIES, InMemoryVerdictCache, isPositive, MAX_NEGATIVE_TTL_MS } from './verdict-cache.js';
+export { DeadlineExceeded, withDeadline } from './deadline.js';
 export type { InMemoryVerdictCacheOptions } from './verdict-cache.js';

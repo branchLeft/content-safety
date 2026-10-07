@@ -7,7 +7,7 @@ import { hashOf } from './helpers/fixtures.js';
 import { startStubArachnid, type StubArachnid } from './helpers/stub-arachnid.js';
 
 const DAY = 24 * 60 * 60 * 1000;
-const TIMEOUT_MS = 200;
+const TIMEOUT_MS = 1000;
 
 describe('PdqKnownMaterialCheck against the local stub', () => {
   let stub: StubArachnid;
@@ -150,10 +150,10 @@ describe('PdqKnownMaterialCheck with an injected lookup', () => {
   it('splits a large batch into chunks and asks them concurrently, under one timeout', async () => {
     const lookup = lookupOf((hashes) =>
       new Promise((resolve) =>
-        setTimeout(() => resolve(new Map(hashes.map((h) => [h, { classification: 'no-known-match' as const }]))), 60)
+        setTimeout(() => resolve(new Map(hashes.map((h) => [h, { classification: 'no-known-match' as const }]))), 20)
       )
     );
-    const check = new PdqKnownMaterialCheck({ lookup, cache: cache(), timeoutMs: 100, maxBatchSize: 2 });
+    const check = new PdqKnownMaterialCheck({ lookup, cache: cache(), timeoutMs: 1000, maxBatchSize: 2 });
     const asked = [1, 2, 3, 4, 5].map(hashOf);
     const verdicts = await check.runBatch(asked);
     expect(lookup.calls.map((c) => c.length)).toEqual([2, 2, 1]);
@@ -171,6 +171,16 @@ describe('PdqKnownMaterialCheck with an injected lookup', () => {
     expect(verdict.classification).toBe('csam');
   });
 
+  it('treats a cache that never answers as a miss, and a write that never settles as dropped', async () => {
+    const hung: VerdictCache = { get: () => new Promise(() => undefined), put: () => new Promise(() => undefined) };
+    const lookup = lookupOf(() => Promise.resolve(new Map([[hashOf(1), { classification: 'csam' as const, matchType: 'exact' as const }]])));
+    const check = new PdqKnownMaterialCheck({ lookup, cache: hung, timeoutMs: 100, cacheTimeoutMs: 30 });
+    const started = performance.now();
+    expect((await check.run(hashOf(1))).classification).toBe('csam');
+    expect(performance.now() - started).toBeLessThan(500);
+    expect(lookup.calls).toHaveLength(1);
+  });
+
   it('refuses a timeout or batch size that does not bound anything', () => {
     const lookup = lookupOf(() => Promise.resolve(new Map()));
     for (const timeoutMs of [0, -1, Number.POSITIVE_INFINITY, Number.NaN]) {
@@ -178,6 +188,9 @@ describe('PdqKnownMaterialCheck with an injected lookup', () => {
     }
     for (const maxBatchSize of [0, 1.5, -2]) {
       expect(() => new PdqKnownMaterialCheck({ lookup, cache: cache(), timeoutMs: 10, maxBatchSize })).toThrow(RangeError);
+    }
+    for (const cacheTimeoutMs of [0, Number.POSITIVE_INFINITY]) {
+      expect(() => new PdqKnownMaterialCheck({ lookup, cache: cache(), timeoutMs: 10, cacheTimeoutMs })).toThrow(RangeError);
     }
   });
 

@@ -113,6 +113,19 @@ export interface AuditSink {
   record(entry: AuditRecord): Promise<void>;
 }
 
+/**
+ * One hash's outcome. `audited: false` means no record of this decision
+ * was written: the decision still stands (an allow has already become a
+ * hold), and the caller must raise it, because a refusal without its
+ * retained record is a gap in what the platform can later account for.
+ */
+export interface Assessment {
+  readonly hash: PdqHash;
+  readonly verdict: Verdict;
+  readonly decision: Decision;
+  readonly audited: boolean;
+}
+
 /** The hash source the media check asks. Implemented over HTTP by `ArachnidPdqClient`. */
 export interface PdqLookup {
   /**
