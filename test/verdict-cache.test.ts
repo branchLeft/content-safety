@@ -123,3 +123,16 @@ describe('InMemoryVerdictCache', () => {
     expect(cache.size).toBe(2);
   });
 });
+
+describe('InMemoryVerdictCache.dropNegative', () => {
+  it('drops a negative and leaves a positive in place', async () => {
+    const cache = new InMemoryVerdictCache({ negativeTtlMs: DAY });
+    await cache.put(negative);
+    await cache.dropNegative(hashOf(1));
+    expect(await cache.get(hashOf(1))).toBeUndefined();
+    await cache.put(positive);
+    await cache.dropNegative(hashOf(1));
+    expect(await cache.get(hashOf(1))).toEqual(positive);
+    await cache.dropNegative(hashOf(9));
+  });
+});

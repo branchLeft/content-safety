@@ -98,6 +98,14 @@ export interface VerdictCache {
   put(verdict: Verdict): Promise<void>;
 }
 
+/**
+ * A cache the re-scan sweep can force to ask again. Only a negative is
+ * dropped: a positive is a listing and is never withdrawn by a sweep.
+ */
+export interface RescannableVerdictCache extends VerdictCache {
+  dropNegative(hash: PdqHash): Promise<void>;
+}
+
 /** One line of the audit trail. Digests, verdicts and decisions only. */
 export interface AuditRecord {
   readonly at: string;
