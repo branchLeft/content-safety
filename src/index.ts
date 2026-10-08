@@ -13,6 +13,7 @@ export type {
   PdqLookup,
   Policy,
   PolicyContext,
+  RescannableVerdictCache,
   ResponseStep,
   Unavailable,
   Verdict,
@@ -30,3 +31,5 @@ export type { SafetyServiceOptions } from './safety-service.js';
 export { DEFAULT_MAX_ENTRIES, InMemoryVerdictCache, isPositive, MAX_NEGATIVE_TTL_MS } from './verdict-cache.js';
 export { DeadlineExceeded, withDeadline } from './deadline.js';
 export type { InMemoryVerdictCacheOptions } from './verdict-cache.js';
+export { MAX_RESCAN_INTERVAL_MS, RescanSweep } from './rescan-sweep.js';
+export type { RescanSweepOptions, StoredHashPage, StoredHashSource, StoredObject, SweepReport } from './rescan-sweep.js';

@@ -1,4 +1,4 @@
-import type { PdqHash, Verdict, VerdictCache } from './contract.js';
+import type { PdqHash, RescannableVerdictCache, Verdict } from './contract.js';
 
 /**
  * The longest a `no-known-match` may be trusted: seven days. A hash that is
@@ -30,7 +30,7 @@ export function isPositive(verdict: Verdict): boolean {
  * One instance serves every host, which is what makes it shared. Where it
  * is stored is incidental; a durable store implements the same interface.
  */
-export class InMemoryVerdictCache implements VerdictCache {
+export class InMemoryVerdictCache implements RescannableVerdictCache {
   readonly #entries = new Map<PdqHash, Entry>();
   readonly #negativeTtlMs: number;
   readonly #maxEntries: number;
@@ -62,6 +62,12 @@ export class InMemoryVerdictCache implements VerdictCache {
       return Promise.resolve(undefined);
     }
     return Promise.resolve(entry.verdict);
+  }
+
+  dropNegative(hash: PdqHash): Promise<void> {
+    const entry = this.#entries.get(hash);
+    if (entry !== undefined && !isPositive(entry.verdict)) this.#entries.delete(hash);
+    return Promise.resolve();
   }
 
   put(verdict: Verdict): Promise<void> {
