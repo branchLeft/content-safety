@@ -4,7 +4,12 @@
 # resolved: an owner without write access is dropped silently, with no error
 # and no warning on the pull request. "The file says so" is not evidence.
 #
-# The shared line above stays. SYNC-1 is `contains`, not `identical`: a repo
-# may add to this file and may never drop a shared line, and rewriting that
-# line in place is dropping it.
+# SYNC-1 checks this file as `suffix` (templates/manifest.tsv): the shared
+# escape-hatch lines must be the file's last lines, in order. GitHub applies
+# the last matching pattern, so a line added below them would take over a hatch.
 * @branchLeft/branchleft-admin
+/.standardsignore        @branchLeft/branchleft-admin
+/.standards.mode         @branchLeft/branchleft-admin
+/.docs-lint*             @branchLeft/branchleft-admin
+/tools/floors.tsv        @branchLeft/branchleft-admin
+/.github/                @branchLeft/branchleft-admin
