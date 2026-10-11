@@ -1,3 +1,4 @@
+import { AuditFileError } from './audit-file.js';
 import { ConfigError, loadConfig } from './config.js';
 import { SecretFileError } from './credential.js';
 import type { LogFields, Logger } from './host-channel.js';
@@ -40,7 +41,8 @@ export async function runMain(
   } catch (error) {
     // Only errors this service builds carry a message written to be shown:
     // anything else is named by its class so no foreign text is logged.
-    const known = error instanceof ConfigError || error instanceof SecretFileError;
+    const known =
+      error instanceof ConfigError || error instanceof SecretFileError || error instanceof AuditFileError;
     log('refused-to-start', { reason: known ? error.message : errorClass(error) });
     return 1;
   }

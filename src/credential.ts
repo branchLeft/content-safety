@@ -1,4 +1,5 @@
-import { readFile, stat } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { open, type FileHandle } from 'node:fs/promises';
 import { inspect } from 'node:util';
 
 const REDACTED = '[redacted]';
@@ -48,23 +49,31 @@ export class Secret {
  */
 export async function readSecretFile(path: string, label: string): Promise<Secret> {
   if (path.length === 0) throw new SecretFileError(`${label}: no file path is configured`);
-  let mode: number;
+  // Opened once, and every check and the read go through that one
+  // descriptor: a path checked and then read again can be swapped between
+  // the two. A symbolic link is refused at the open.
+  let handle: FileHandle;
   try {
-    const info = await stat(path);
-    if (!info.isFile()) throw new SecretFileError(`${label}: ${path} is not a regular file`);
-    mode = info.mode;
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   } catch (error) {
-    if (error instanceof SecretFileError) throw error;
-    throw new SecretFileError(`${label}: ${path} cannot be read`);
-  }
-  if ((mode & 0o077) !== 0) {
-    throw new SecretFileError(`${label}: ${path} is readable by group or others; restrict it to its owner`);
+    const link = (error as NodeJS.ErrnoException).code === 'ELOOP';
+    throw new SecretFileError(
+      link ? `${label}: ${path} is a symbolic link; name the file itself` : `${label}: ${path} cannot be read`
+    );
   }
   let text: string;
   try {
-    text = await readFile(path, 'utf8');
-  } catch {
+    const info = await handle.stat();
+    if (!info.isFile()) throw new SecretFileError(`${label}: ${path} is not a regular file`);
+    if ((info.mode & 0o077) !== 0) {
+      throw new SecretFileError(`${label}: ${path} is readable by group or others; restrict it to its owner`);
+    }
+    text = await handle.readFile('utf8');
+  } catch (error) {
+    if (error instanceof SecretFileError) throw error;
     throw new SecretFileError(`${label}: ${path} cannot be read`);
+  } finally {
+    await handle.close();
   }
   const value = text.trim();
   if (value.length === 0) throw new SecretFileError(`${label}: ${path} is empty`);

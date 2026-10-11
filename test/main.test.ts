@@ -123,3 +123,17 @@ describe('runMain', () => {
     expect(run.lines.join('\n')).not.toContain('TEST_SENTINEL_CREDENTIAL');
   });
 });
+
+describe('runMain and the audit file', () => {
+  it('refuses to start on an audit file that is open to others, and says so', async () => {
+    rig = await startRig();
+    await writeFile(rig.auditPath, '', { mode: 0o644 });
+    await chmod(rig.auditPath, 0o644);
+    const run = io();
+
+    expect(await runMain(['--config', await configFile(rig)], {}, run.api)).toBe(1);
+
+    expect(run.lines.join('\n')).toContain('readable by group or others');
+    expect(rig.host.requests).toHaveLength(0);
+  });
+});

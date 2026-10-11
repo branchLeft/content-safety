@@ -1,3 +1,4 @@
+import { BodyTooLarge, discardBody, readBoundedText } from './bounded-body.js';
 import { buildVerdictsBody, MAX_BODY_BYTES, parsePendingBatch, PENDING_PATH, VERDICTS_PATH } from './channel-contract.js';
 import type { PendingBatch } from './channel-contract.js';
 import type { HostConfig } from './config.js';
@@ -26,7 +27,7 @@ export interface HostChannelOptions {
   readonly now?: () => number;
 }
 
-export type RoundOutcome = 'empty' | 'answered' | 'failed';
+export type RoundOutcome = 'empty' | 'answered' | 'degraded' | 'failed';
 
 /** Thrown for a host answer that breaks the channel contract; carries a fixed reason only. */
 class ChannelError extends Error {
@@ -73,7 +74,7 @@ export class HostChannel {
       const started = this.#now();
       const outcome = await this.runOnce();
       if (this.#stop.signal.aborted) return;
-      if (outcome === 'failed') {
+      if (outcome === 'failed' || outcome === 'degraded') {
         failures += 1;
         await this.#sleep(this.#backoff(failures), this.#stop.signal);
       } else {
@@ -120,12 +121,17 @@ export class HostChannel {
 
     try {
       const accepted = await this.#post(batch.batch, assessments);
+      const unavailable = assessments.filter((a) => a.verdict.classification === 'unavailable').length;
       this.#options.log(accepted ? 'batch-answered' : 'batch-expired', {
         host,
         answered: assessments.length,
+        unavailable,
         skipped: batch.skipped,
       });
-      return 'answered';
+      // A batch that came back wholly `unavailable` is a hash source in
+      // trouble, and a host that offers it again at once would turn that
+      // into a storm of requests against the source.
+      return unavailable === assessments.length ? 'degraded' : 'answered';
     } catch (error) {
       this.#options.log('verdicts-failed', { host, reason: reasonOf(error) });
       return 'failed';
@@ -140,9 +146,11 @@ export class HostChannel {
       signal: AbortSignal.any([this.#stop.signal, AbortSignal.timeout(this.#options.pollTimeoutMs)]),
       redirect: 'error',
     });
-    if (!response.ok) throw new ChannelError(`host-answered-${String(response.status)}`);
-    const text = await response.text();
-    if (text.length > MAX_BODY_BYTES) throw new ChannelError('response-too-large');
+    if (!response.ok) {
+      discardBody(response);
+      throw new ChannelError(`host-answered-${String(response.status)}`);
+    }
+    const text = await boundedAnswer(response);
     let payload: unknown;
     try {
       payload = JSON.parse(text);
@@ -169,10 +177,21 @@ export class HostChannel {
       signal: AbortSignal.timeout(this.#options.postTimeoutMs),
       redirect: 'error',
     });
-    await response.arrayBuffer();
+    await boundedAnswer(response);
     if (response.status === 409) return false;
-    if (!response.ok) throw new ChannelError(`host-answered-${String(response.status)}`);
+    // Only 204 is taken: anything else may mean the host kept nothing.
+    if (response.status !== 204) throw new ChannelError(`host-answered-${String(response.status)}`);
     return true;
+  }
+}
+
+/** The body is read as bytes arrive and the stream cancelled past the limit, never buffered whole first. */
+async function boundedAnswer(response: Response): Promise<string> {
+  try {
+    return await readBoundedText(response, MAX_BODY_BYTES);
+  } catch (error) {
+    if (error instanceof BodyTooLarge) throw new ChannelError('response-too-large');
+    throw error;
   }
 }
 

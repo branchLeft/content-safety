@@ -85,7 +85,10 @@ describe('parseConfig', () => {
   });
 
   it('refuses an unknown key anywhere, so a misspelt safety setting is not ignored', () => {
-    expect(refusal(withChange((c) => (c.extra = 1)))).toContain('unknown key "extra"');
+    const message = refusal(withChange((c) => (c.extra = 1)));
+    expect(message).toContain('config has an unknown key');
+    // The key itself is not echoed: a misplaced secret could be one.
+    expect(message).not.toContain('extra');
     expect(refusal(withChange((c) => (c.hosts[0].extra = 1)))).toContain('hosts[0]');
     expect(refusal(withChange((c) => (c.arachnid.credential = 'x')))).toContain('arachnid');
   });

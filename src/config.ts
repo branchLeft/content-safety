@@ -203,7 +203,7 @@ function object(value: unknown, name: string): Obj {
 
 function noUnknownKeys(value: Obj, allowed: readonly string[], name: string): void {
   for (const key of Object.keys(value)) {
-    if (!allowed.includes(key)) throw new ConfigError(`config: ${name} has an unknown key "${key}"`);
+    if (!allowed.includes(key)) throw new ConfigError(`config: ${name} has an unknown key`);
   }
 }
 

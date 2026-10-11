@@ -1,4 +1,5 @@
 import type { Classification, LookupResult, MatchType, PdqHash, PdqLookup } from './contract.js';
+import { readBoundedText } from './bounded-body.js';
 import { parsePdqHash } from './pdq-hash.js';
 
 /**
@@ -8,6 +9,9 @@ import { parsePdqHash } from './pdq-hash.js';
  * image; none of them has a code path.
  */
 export const PDQ_PATH = '/v1/pdq';
+
+/** Far above any batch's answer; past it the hash source is not answering, and every hash waiting is `unavailable`. */
+export const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 const CLASSIFICATIONS: ReadonlySet<string> = new Set<Classification>([
   'csam',
@@ -100,6 +104,6 @@ export class ArachnidPdqClient implements PdqLookup {
     if (!response.ok) {
       throw new Error(`hash lookup answered HTTP ${String(response.status)}`);
     }
-    return parsePdqResponse(await response.json(), hashes);
+    return parsePdqResponse(JSON.parse(await readBoundedText(response, MAX_RESPONSE_BYTES)), hashes);
   }
 }

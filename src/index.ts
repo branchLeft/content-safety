@@ -19,7 +19,13 @@ export type {
   Verdict,
   VerdictCache,
 } from './contract.js';
-export { ArachnidPdqClient, buildPdqRequestBody, parsePdqResponse, PDQ_PATH } from './arachnid-client.js';
+export {
+  ArachnidPdqClient,
+  buildPdqRequestBody,
+  MAX_RESPONSE_BYTES,
+  parsePdqResponse,
+  PDQ_PATH,
+} from './arachnid-client.js';
 export type { ArachnidPdqClientOptions, FetchLike, PdqRequestBody } from './arachnid-client.js';
 export { JsonLinesAuditSink, toAuditRecord } from './audit.js';
 export { isPdqHash, parsePdqHash } from './pdq-hash.js';
@@ -34,7 +40,8 @@ export type { InMemoryVerdictCacheOptions } from './verdict-cache.js';
 export { MAX_RESCAN_INTERVAL_MS, RescanSweep } from './rescan-sweep.js';
 export type { RescanSweepOptions, StoredHashPage, StoredHashSource, StoredObject, SweepReport } from './rescan-sweep.js';
 export { copyDecision } from './audit.js';
-export { openAuditFile } from './audit-file.js';
+export { AuditFileError, openAuditFile } from './audit-file.js';
+export { BodyTooLarge, discardBody, readBoundedText } from './bounded-body.js';
 export type { AuditFile } from './audit-file.js';
 export {
   buildVerdictsBody,

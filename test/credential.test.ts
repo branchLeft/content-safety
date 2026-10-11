@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspect } from 'node:util';
@@ -77,5 +77,20 @@ describe('readSecretFile', () => {
     const isRoot = process.getuid?.() === 0;
     if (isRoot) return;
     expect(await refusal(path)).toContain('cannot be read');
+  });
+});
+
+describe('readSecretFile and a path that is not the file itself', () => {
+  it('refuses a symbolic link, even to an owner-only file', async () => {
+    const target = join(dir, 'real-secret');
+    await writeFile(target, `${VALUE}\n`);
+    await chmod(target, 0o600);
+    const link = join(dir, 'link-to-secret');
+    await symlink(target, link);
+
+    const message = await refusal(link);
+
+    expect(message).toContain('symbolic link');
+    expect(message).not.toContain(VALUE);
   });
 });

@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { FetchLike } from '../src/arachnid-client.js';
+import { MAX_BODY_BYTES } from '../src/channel-contract.js';
 import type { Assessment, PdqHash } from '../src/contract.js';
 import { HostChannel, type HostChannelOptions } from '../src/host-channel.js';
 import { Secret } from '../src/credential.js';
 import { RequestSigner } from '../src/request-signer.js';
 import { DEMO, hashOf } from './helpers/fixtures.js';
 import { makeSigningKey } from './helpers/keys.js';
+import { endlessBody, type StreamStats } from './helpers/streams.js';
 
 const BATCH = 'batch-0123456789abcdef';
 
@@ -88,7 +90,7 @@ describe('HostChannel.runOnce', () => {
       assess: () => Promise.reject(new Error('boom TEST_SENTINEL')),
     });
 
-    expect(await channel.runOnce()).toBe('answered');
+    expect(await channel.runOnce()).toBe('degraded');
 
     const posted = JSON.parse(sent[1]?.init.body as string) as { verdicts: { hash: string; classification: string; decision: unknown }[] };
     expect(posted.verdicts.map((v) => v.classification)).toEqual(['unavailable', 'unavailable']);
@@ -113,17 +115,68 @@ describe('HostChannel.runOnce', () => {
   });
 
   it('fails a poll the host refuses, that is not JSON, that breaks the contract, or is too large', async () => {
-    const cases: [Response, string][] = [
-      [json(401, undefined), 'host-answered-401'],
-      [new Response('<html>', { status: 200 }), 'response-not-json'],
-      [json(200, { v: 9, hashes: [] }), 'response-breaks-contract'],
-      [new Response('x'.repeat(300 * 1024), { status: 200 }), 'response-too-large'],
+    const cases: [() => Response, string][] = [
+      [() => json(401, undefined), 'host-answered-401'],
+      [() => new Response('<html>', { status: 200 }), 'response-not-json'],
+      [() => json(200, { v: 9, hashes: [] }), 'response-breaks-contract'],
+      [() => new Response('x'.repeat(300 * 1024), { status: 200 }), 'response-too-large'],
     ];
     for (const [response, reason] of cases) {
-      const { channel, logs } = build(() => response.clone());
+      const { channel, logs } = build(response);
 
       expect(await channel.runOnce()).toBe('failed');
       expect(logs).toEqual([['poll-failed', { host: 'HOST_A', reason }]]);
+    }
+  });
+
+  it('counts bytes: a poll answer over the bound in bytes but under it in characters is refused', async () => {
+    const padding = '€'.repeat(100_000);
+    expect(padding.length).toBeLessThan(MAX_BODY_BYTES);
+    expect(Buffer.byteLength(padding)).toBeGreaterThan(MAX_BODY_BYTES);
+    const { channel, logs } = build(() => json(200, { v: 1, hashes: [], padding }));
+
+    expect(await channel.runOnce()).toBe('failed');
+    expect(logs).toEqual([['poll-failed', { host: 'HOST_A', reason: 'response-too-large' }]]);
+  });
+
+  it('stops reading a poll answer that never ends, soon after the bound, and cancels it', async () => {
+    const streams: StreamStats[] = [];
+    const { channel, logs } = build(() => {
+      const { response, stats } = endlessBody(16 * 1024);
+      streams.push(stats);
+      return response;
+    });
+
+    expect(await channel.runOnce()).toBe('failed');
+
+    expect(logs).toEqual([['poll-failed', { host: 'HOST_A', reason: 'response-too-large' }]]);
+    expect(streams[0]?.pulled).toBeGreaterThan(MAX_BODY_BYTES);
+    expect(streams[0]?.pulled).toBeLessThanOrEqual(MAX_BODY_BYTES + 64 * 1024);
+    await vi.waitFor(() => expect(streams[0]?.cancelled).toBe(true));
+  });
+
+  it('bounds the answer to a verdict post the same way, and fails the round', async () => {
+    const streams: StreamStats[] = [];
+    const { channel, logs } = build((_, n) => {
+      if (n === 1) return batchOf(hashOf(1));
+      const { response, stats } = endlessBody(16 * 1024);
+      streams.push(stats);
+      return response;
+    });
+
+    expect(await channel.runOnce()).toBe('failed');
+
+    expect(logs.at(-1)).toEqual(['verdicts-failed', { host: 'HOST_A', reason: 'response-too-large' }]);
+    expect(streams[0]?.pulled).toBeLessThanOrEqual(MAX_BODY_BYTES + 64 * 1024);
+    await vi.waitFor(() => expect(streams[0]?.cancelled).toBe(true));
+  });
+
+  it('counts only a 204 as the verdicts taken: a 200, 201 or 202 is a failure', async () => {
+    for (const status of [200, 201, 202]) {
+      const { channel, logs } = build((_, n) => (n === 1 ? batchOf(hashOf(1)) : new Response('', { status })));
+
+      expect(await channel.runOnce()).toBe('failed');
+      expect(logs.at(-1)).toEqual(['verdicts-failed', { host: 'HOST_A', reason: `host-answered-${String(status)}` }]);
     }
   });
 
@@ -158,6 +211,52 @@ describe('HostChannel.runOnce', () => {
 
     expect(await channel.runOnce()).toBe('answered');
     expect(logs.at(-1)?.[0]).toBe('batch-expired');
+  });
+});
+
+describe('HostChannel when the hash source is down', () => {
+  const unavailableFor = async (hashes: readonly PdqHash[]): Promise<Assessment[]> =>
+    hashes.map((hash) => ({
+      hash,
+      verdict: { classification: 'unavailable', source: 'test', evidence: hash },
+      decision: { action: 'hold', reason: 'unavailable' },
+      audited: true,
+    }));
+
+  it('reports a batch that came back wholly unavailable as degraded, with the count', async () => {
+    const { channel, logs } = build((_, n) => (n === 1 ? batchOf(hashOf(1), hashOf(2)) : json(204, undefined)), {
+      assess: unavailableFor,
+    });
+
+    expect(await channel.runOnce()).toBe('degraded');
+    expect(logs.at(-1)).toEqual(['batch-answered', { host: 'HOST_A', answered: 2, unavailable: 2, skipped: 0 }]);
+  });
+
+  it('reports a batch with any real verdict as answered', async () => {
+    const { channel } = build((_, n) => (n === 1 ? batchOf(hashOf(1), hashOf(2)) : json(204, undefined)), {
+      assess: async (hashes) => [...(await unavailableFor(hashes.slice(0, 1))), allow(hashes[1] as PdqHash)],
+    });
+
+    expect(await channel.runOnce()).toBe('answered');
+  });
+
+  it('does not reset its backoff on an unavailable batch, so a host that re-offers at once cannot storm the source', async () => {
+    const { channel, sleeps } = build(
+      async (_, n) => {
+        // Yields to timers, so a loop that stopped backing off fails the
+        // assertion below instead of starving the test of its own clock.
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        return n % 2 === 1 ? batchOf(hashOf(1)) : json(204, undefined);
+      },
+      { assess: unavailableFor, now: () => 0 }
+    );
+    channel.start();
+    try {
+      await vi.waitFor(() => expect(sleeps.length).toBeGreaterThanOrEqual(5), { timeout: 2000 });
+      expect(sleeps.slice(0, 5)).toEqual([10, 20, 40, 50, 50]);
+    } finally {
+      await channel.stop();
+    }
   });
 });
 

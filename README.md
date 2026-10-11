@@ -46,7 +46,7 @@ The configuration names four files and the hosts to dial:
 }
 ```
 
-- The credential file holds the complete `Authorization` header value on one line, because the form the supplier takes is not stated in its published specification. It is read once, never from the environment, and a file readable by anyone but its owner is refused.
+- The credential file holds the complete `Authorization` header value on one line, because the form the supplier takes is not stated in its published specification. It is read once, never from the environment. It must be a regular file: a symbolic link is refused, and so is a file readable by anyone but its owner (checked on the one descriptor the file is read from).
 - The signing key file holds the base64 of a 32-byte Ed25519 seed. Hosts hold only the public key.
 - The process refuses to start, with exit code 1 and a one-line reason that never quotes a file's content, when a file is missing, empty or open to others, or a setting is absent or unknown.
 - Output is one JSON line per event, carrying fixed names and counts only.
