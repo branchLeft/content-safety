@@ -22,7 +22,8 @@ export function toAuditRecord(at: Date, verdict: Verdict, decision: Decision, co
   };
 }
 
-function copyDecision(decision: Decision): Decision {
+/** A copy built field by field, so nothing a decision object happens to carry travels with it. */
+export function copyDecision(decision: Decision): Decision {
   switch (decision.action) {
     case 'allow':
       return { action: 'allow' };

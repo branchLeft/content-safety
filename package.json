@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "test:unit": "vitest run",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "start": "node dist/bin.js"
   },
   "devDependencies": {
     "@branchleft/ghost-platform-render-core": "0.1.1",
