@@ -1,5 +1,5 @@
 import type { Assessment, PdqHash, PolicyContext, RescannableVerdictCache } from './contract.js';
-import { assertBudget } from './deadline.js';
+import { assertBudget, withDeadline } from './deadline.js';
 import { MAX_NEGATIVE_TTL_MS } from './verdict-cache.js';
 
 /**
@@ -31,7 +31,7 @@ export interface StoredHashSource {
 export interface SweepReport {
   readonly examined: number;
   readonly withdrawn: number;
-  /** Refused objects whose withdrawal threw; they are retried next sweep. */
+  /** Refused objects whose withdrawal threw or exceeded its budget; they are retried next sweep. */
   readonly withdrawFailed: number;
   /** Hashes the hash source could not answer for; they stay as they are and are asked again. */
   readonly unanswered: number;
@@ -47,10 +47,13 @@ export interface RescanSweepOptions {
   readonly intervalMs: number;
   /** Objects per page read from storage. Incidental. */
   readonly pageSize?: number;
+  /** Budget for one call to the hash source, the cache or `withdraw`; past it the call fails or ends the pass. */
+  readonly callTimeoutMs?: number;
   readonly onError?: (error: unknown) => void;
 }
 
 const DEFAULT_PAGE_SIZE = 500;
+const DEFAULT_CALL_TIMEOUT_MS = 10_000;
 
 /**
  * Re-asks the hash source about every stored hash, so something clean when
@@ -61,6 +64,7 @@ const DEFAULT_PAGE_SIZE = 500;
 export class RescanSweep {
   readonly #options: RescanSweepOptions;
   readonly #pageSize: number;
+  readonly #callTimeoutMs: number;
   #timer: ReturnType<typeof setInterval> | undefined;
   #running: Promise<SweepReport> | undefined;
 
@@ -73,6 +77,7 @@ export class RescanSweep {
     if (!Number.isInteger(pageSize) || pageSize < 1) {
       throw new RangeError('pageSize must be a positive integer');
     }
+    this.#callTimeoutMs = assertBudget('callTimeoutMs', options.callTimeoutMs ?? DEFAULT_CALL_TIMEOUT_MS);
     this.#options = options;
     this.#pageSize = pageSize;
   }
@@ -105,13 +110,19 @@ export class RescanSweep {
     let unanswered = 0;
     let cursor: string | undefined;
     do {
-      const page = await this.#options.source.page(cursor, this.#pageSize);
+      const page = await withDeadline(
+        this.#options.source.page(cursor, this.#pageSize),
+        this.#callTimeoutMs,
+        'hash source page'
+      );
       examined += page.objects.length;
       for (const group of groupByContext(page.objects)) {
         const hashes = [...new Set(group.objects.map((o) => o.hash))];
         // Dropping first is what makes this a re-submission: a still-valid
         // cached negative would otherwise answer without asking anyone.
-        for (const hash of hashes) await this.#options.cache.dropNegative(hash);
+        for (const hash of hashes) {
+          await withDeadline(this.#options.cache.dropNegative(hash), this.#callTimeoutMs, 'cache drop');
+        }
         const byHash = new Map<PdqHash, Assessment>();
         for (const a of await this.#options.assess(hashes, group.context)) byHash.set(a.hash, a);
         for (const object of group.objects) {
@@ -120,7 +131,7 @@ export class RescanSweep {
             unanswered += 1;
           } else if (assessment.decision.action === 'refuse') {
             try {
-              await this.#options.withdraw(object, assessment);
+              await withDeadline(this.#options.withdraw(object, assessment), this.#callTimeoutMs, 'withdrawal');
               withdrawn += 1;
             } catch (error) {
               withdrawFailed += 1;

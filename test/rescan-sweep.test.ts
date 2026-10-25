@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ArachnidPdqClient } from '../src/arachnid-client.js';
-import type { Assessment, AuditRecord, AuditSink, PdqHash } from '../src/contract.js';
+import type { Assessment, AuditRecord, AuditSink, PdqHash, RescannableVerdictCache } from '../src/contract.js';
+import { DeadlineExceeded } from '../src/deadline.js';
 import { PdqKnownMaterialCheck } from '../src/pdq-known-material-check.js';
 import { EstatePolicy } from '../src/policy.js';
 import {
@@ -251,5 +252,103 @@ describe('negative verdicts expire and stored hashes are re-submitted', () => {
     expect(() => new RescanSweep({ ...base, intervalMs: MAX_RESCAN_INTERVAL_MS + 1 })).toThrow(RangeError);
     expect(() => new RescanSweep({ ...base, intervalMs: 0 })).toThrow(RangeError);
     expect(() => new RescanSweep({ ...base, intervalMs: DAY, pageSize: 0 })).toThrow(RangeError);
+  });
+
+  it('control case: a withdraw that never resolves does not stop later sweeps', async () => {
+    stub.listed = new Map([[hashOf(1), LISTED]]);
+    const storage = new MemoryStorage([object('a', 1)]);
+    let withdrawCalls = 0;
+    const errors: unknown[] = [];
+    const sweep = new RescanSweep({
+      source: storage,
+      cache,
+      assess: (h, c) => service.assess(h, c),
+      withdraw: () => {
+        withdrawCalls += 1;
+        return new Promise<void>(() => {});
+      },
+      intervalMs: 20,
+      callTimeoutMs: 10,
+      onError: (e) => errors.push(e),
+    });
+    try {
+      sweep.start();
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    } finally {
+      sweep.stop();
+    }
+    expect(errors).toContainEqual(expect.objectContaining({ name: 'DeadlineExceeded' }));
+    expect(withdrawCalls).toBeGreaterThanOrEqual(2);
+  });
+
+  it('a withdraw that never resolves is counted as failed', async () => {
+    stub.listed = new Map([[hashOf(1), LISTED]]);
+    const storage = new MemoryStorage([object('a', 1)]);
+    const sweep = new RescanSweep({
+      source: storage,
+      cache,
+      assess: (h, c) => service.assess(h, c),
+      withdraw: () => new Promise<void>(() => {}),
+      intervalMs: DAY,
+      callTimeoutMs: 10,
+    });
+    expect(await sweep.sweep()).toMatchObject({ withdrawn: 0, withdrawFailed: 1 });
+  });
+
+  it('a page that never resolves ends the pass and the next sweep runs', async () => {
+    const storage = new MemoryStorage([object('a', 1)]);
+    let pageCalls = 0;
+    const sweep = new RescanSweep({
+      source: {
+        page: (cursor, limit) => {
+          pageCalls += 1;
+          return pageCalls === 1 ? new Promise<StoredHashPage>(() => {}) : storage.page(cursor, limit);
+        },
+      },
+      cache,
+      assess: (h, c) => service.assess(h, c),
+      withdraw: () => Promise.resolve(),
+      intervalMs: DAY,
+      callTimeoutMs: 10,
+    });
+    await expect(sweep.sweep()).rejects.toBeInstanceOf(DeadlineExceeded);
+    expect(await sweep.sweep()).toMatchObject({ examined: 1 });
+    expect(pageCalls).toBeGreaterThanOrEqual(2);
+  });
+
+  it('a cache drop that never resolves ends the pass without assessing', async () => {
+    const storage = new MemoryStorage([object('a', 1)]);
+    let assessCalls = 0;
+    const hangingCache: RescannableVerdictCache = {
+      get: (h) => cache.get(h),
+      put: (v) => cache.put(v),
+      dropNegative: () => new Promise<void>(() => {}),
+    };
+    const sweep = new RescanSweep({
+      source: storage,
+      cache: hangingCache,
+      assess: (h, c) => {
+        assessCalls += 1;
+        return service.assess(h, c);
+      },
+      withdraw: () => Promise.resolve(),
+      intervalMs: DAY,
+      callTimeoutMs: 10,
+    });
+    await expect(sweep.sweep()).rejects.toBeInstanceOf(DeadlineExceeded);
+    expect(assessCalls).toBe(0);
+  });
+
+  it('refuses a call budget that is not a positive finite number', () => {
+    const base = {
+      source: new MemoryStorage([]),
+      cache,
+      assess: () => Promise.resolve([]),
+      withdraw: () => Promise.resolve(),
+      intervalMs: DAY,
+    };
+    for (const callTimeoutMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => new RescanSweep({ ...base, callTimeoutMs })).toThrow(RangeError);
+    }
   });
 });
