@@ -1,16 +1,22 @@
 import type { BatchCheck, PdqHash, PdqLookup, Verdict, VerdictCache } from './contract.js';
-import { assertBudget, withDeadline } from './deadline.js';
+import { assertBudget, millisecondsRemaining, withDeadline } from './deadline.js';
 
 export const PDQ_CHECK_SOURCE = 'arachnid-shield-pdq';
 
 export interface PdqKnownMaterialCheckOptions {
   readonly lookup: PdqLookup;
   readonly cache: VerdictCache;
-  /** The whole budget for one lookup round trip, after which every hash still waiting is `unavailable`. */
+  /**
+   * The whole budget for one `runBatch` call, covering cache reads, the lookup and cache writes. Every hash
+   * still waiting when it runs out is `unavailable`.
+   */
   readonly timeoutMs: number;
   /** Hashes per request. Incidental: the published contract names no limit. */
   readonly maxBatchSize?: number;
-  /** Budget for one cache read or write. A read past it is a miss; a write past it is dropped. */
+  /**
+   * Budget for one cache read or write, capped by what remains of `timeoutMs`. A read past it is a miss;
+   * a write past it is dropped.
+   */
   readonly cacheTimeoutMs?: number;
 }
 
@@ -52,27 +58,35 @@ export class PdqKnownMaterialCheck implements BatchCheck<PdqHash> {
   }
 
   async runBatch(subjects: readonly PdqHash[]): Promise<readonly Verdict[]> {
+    const deadline = performance.now() + this.#timeoutMs;
     const known = new Map<PdqHash, Verdict>();
+    const unique = [...new Set(subjects)];
+    // Concurrent, so a hung cache costs one budget for the whole batch, not one per hash.
+    const cached = await Promise.all(unique.map((hash) => this.#safeCacheGet(hash, deadline)));
     const misses: PdqHash[] = [];
-    for (const hash of new Set(subjects)) {
-      const cached = await this.#safeCacheGet(hash);
-      if (cached === undefined) misses.push(hash);
-      else known.set(hash, cached);
-    }
+    unique.forEach((hash, index) => {
+      const verdict = cached[index];
+      if (verdict === undefined) misses.push(hash);
+      else known.set(hash, verdict);
+    });
     const chunks: PdqHash[][] = [];
     for (let i = 0; i < misses.length; i += this.#maxBatch) {
       chunks.push(misses.slice(i, i + this.#maxBatch));
     }
-    // Concurrent, so a large batch is bounded by one timeout rather than one per chunk.
-    const answers = await Promise.all(chunks.map((chunk) => this.#ask(chunk)));
-    for (const verdict of answers.flat()) {
-      known.set(verdict.evidence, verdict);
-      await this.#safeCachePut(verdict);
+    if (chunks.length > 0) {
+      const lookupBudget = millisecondsRemaining(deadline);
+      if (lookupBudget > 0) {
+        // Concurrent, so a large batch is bounded by one budget rather than one per chunk.
+        const answers = await Promise.all(chunks.map((chunk) => this.#ask(chunk, lookupBudget)));
+        const verdicts = answers.flat();
+        for (const verdict of verdicts) known.set(verdict.evidence, verdict);
+        await Promise.all(verdicts.map((verdict) => this.#safeCachePut(verdict, deadline)));
+      }
     }
     return subjects.map((hash) => known.get(hash) ?? unavailable(hash));
   }
 
-  async #ask(hashes: readonly PdqHash[]): Promise<readonly Verdict[]> {
+  async #ask(hashes: readonly PdqHash[], budgetMs: number): Promise<readonly Verdict[]> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Aborting is not enough on its own: a lookup that ignores its signal
@@ -81,7 +95,7 @@ export class PdqKnownMaterialCheck implements BatchCheck<PdqHash> {
       timer = setTimeout(() => {
         controller.abort();
         resolve(null);
-      }, this.#timeoutMs);
+      }, budgetMs);
     });
     try {
       const answered = await Promise.race([this.#lookup.lookup(hashes, controller.signal), timedOut]);
@@ -103,17 +117,21 @@ export class PdqKnownMaterialCheck implements BatchCheck<PdqHash> {
     }
   }
 
-  async #safeCacheGet(hash: PdqHash): Promise<Verdict | undefined> {
+  async #safeCacheGet(hash: PdqHash, deadline: number): Promise<Verdict | undefined> {
+    const budgetMs = millisecondsRemaining(deadline, this.#cacheTimeoutMs);
+    if (budgetMs === 0) return undefined;
     try {
-      return await withDeadline(this.#cache.get(hash), this.#cacheTimeoutMs, 'cache read');
+      return await withDeadline(this.#cache.get(hash), budgetMs, 'cache read');
     } catch {
       return undefined;
     }
   }
 
-  async #safeCachePut(verdict: Verdict): Promise<void> {
+  async #safeCachePut(verdict: Verdict, deadline: number): Promise<void> {
+    const budgetMs = millisecondsRemaining(deadline, this.#cacheTimeoutMs);
+    if (budgetMs === 0) return;
     try {
-      await withDeadline(this.#cache.put(verdict), this.#cacheTimeoutMs, 'cache write');
+      await withDeadline(this.#cache.put(verdict), budgetMs, 'cache write');
     } catch {
       // A cache that cannot store only costs a repeat lookup next time.
     }

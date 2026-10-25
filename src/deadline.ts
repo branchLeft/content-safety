@@ -18,6 +18,12 @@ export async function withDeadline<T>(work: Promise<T>, ms: number, what: string
   }
 }
 
+/** A timer cannot fire sooner than about 1 ms, so less than that left is no budget at all (0). */
+export function millisecondsRemaining(deadline: number, cap: number = Number.POSITIVE_INFINITY): number {
+  const remaining = deadline - performance.now();
+  return remaining < 1 ? 0 : Math.min(cap, remaining);
+}
+
 export function assertBudget(name: string, ms: number): number {
   if (!Number.isFinite(ms) || ms <= 0) {
     throw new RangeError(`${name} must be a positive, finite number of milliseconds`);
