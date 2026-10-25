@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArachnidPdqClient } from '../src/arachnid-client.js';
 import type { LookupResult, PdqHash, PdqLookup, Verdict, VerdictCache } from '../src/contract.js';
 import { PDQ_CHECK_SOURCE, PdqKnownMaterialCheck } from '../src/pdq-known-material-check.js';
@@ -180,6 +180,85 @@ describe('PdqKnownMaterialCheck with an injected lookup', () => {
     expect(performance.now() - started).toBeLessThan(500);
     expect(lookup.calls).toHaveLength(1);
   });
+
+  it('bounds a batch against a hung cache by one timeoutMs budget', async () => {
+    const hashes = Array.from({ length: 100 }, (_, index) => hashOf(index + 1));
+    const hung: VerdictCache = { get: () => new Promise(() => undefined), put: () => new Promise(() => undefined) };
+    const lookup = lookupOf((asked) => Promise.resolve(new Map(asked.map((hash) => [hash, { classification: 'no-known-match' as const }]))));
+    const check = new PdqKnownMaterialCheck({ lookup, cache: hung, timeoutMs: 400, cacheTimeoutMs: 30 });
+    const started = performance.now();
+    const verdicts = await check.runBatch(hashes);
+    const elapsed = performance.now() - started;
+    expect(verdicts).toHaveLength(100);
+    expect(verdicts.map((verdict) => verdict.evidence)).toEqual(hashes);
+    expect(verdicts.every((verdict) => verdict.classification === 'no-known-match')).toBe(true);
+    expect(elapsed).toBeLessThan(400 + 200);
+  }, 15_000);
+
+  it('yields unavailable for a whole batch when a hung cache and a hung lookup share one budget', async () => {
+    const hashes = Array.from({ length: 100 }, (_, index) => hashOf(index + 1));
+    const hung: VerdictCache = { get: () => new Promise(() => undefined), put: () => new Promise(() => undefined) };
+    const lookup = lookupOf(() => new Promise(() => undefined));
+    const check = new PdqKnownMaterialCheck({ lookup, cache: hung, timeoutMs: 400, cacheTimeoutMs: 30 });
+    const started = performance.now();
+    const verdicts = await check.runBatch(hashes);
+    const elapsed = performance.now() - started;
+    expect(verdicts).toHaveLength(100);
+    expect(verdicts.every((verdict) => verdict.classification === 'unavailable')).toBe(true);
+    expect(elapsed).toBeLessThan(400 + 200);
+  }, 15_000);
+
+  it('starts the lookup no later than the one timeoutMs budget when every cache read hangs', async () => {
+    const hashes = Array.from({ length: 20 }, (_, index) => hashOf(index + 1));
+    const hung: VerdictCache = { get: () => new Promise(() => undefined), put: () => new Promise(() => undefined) };
+    const lookup = lookupOf((asked) => Promise.resolve(new Map(asked.map((hash) => [hash, { classification: 'no-known-match' as const }]))));
+    const check = new PdqKnownMaterialCheck({ lookup, cache: hung, timeoutMs: 100, cacheTimeoutMs: 5000 });
+    vi.useFakeTimers();
+    let pending: Promise<readonly Verdict[]>;
+    let elapsed: number;
+    try {
+      const started = performance.now();
+      pending = check.runBatch(hashes);
+      await vi.advanceTimersByTimeAsync(100);
+      elapsed = performance.now() - started;
+    } finally {
+      // Restored before awaiting, so a batch that never settles on the fake clock cannot leak fake timers into later tests.
+      vi.useRealTimers();
+    }
+    const verdicts = await pending;
+    expect(verdicts).toHaveLength(20);
+    expect(verdicts.every((verdict) => verdict.classification === 'unavailable')).toBe(true);
+    expect(lookup.calls).toHaveLength(0);
+    expect(elapsed).toBeLessThanOrEqual(100);
+  }, 2_000);
+
+  it('serves stored csam verdicts from the cache and asks the lookup only about the rest, under one budget', async () => {
+    const numbers = Array.from({ length: 100 }, (_, index) => index + 1);
+    const hashes = numbers.map((n) => hashOf(n));
+    const storedCsam = new Map<PdqHash, Verdict>(
+      numbers
+        .filter((n) => n % 2 === 0)
+        .map((n) => [hashOf(n), { classification: 'csam', matchType: 'exact', source: PDQ_CHECK_SOURCE, evidence: hashOf(n) }])
+    );
+    const cacheWithStoredHits: VerdictCache = {
+      get: (hash) => (storedCsam.has(hash) ? Promise.resolve(storedCsam.get(hash)) : new Promise(() => undefined)),
+      put: () => new Promise(() => undefined),
+    };
+    const lookup = lookupOf((asked) => Promise.resolve(new Map(asked.map((hash) => [hash, { classification: 'no-known-match' as const }]))));
+    const check = new PdqKnownMaterialCheck({ lookup, cache: cacheWithStoredHits, timeoutMs: 400, cacheTimeoutMs: 30 });
+    const started = performance.now();
+    const verdicts = await check.runBatch(hashes);
+    const elapsed = performance.now() - started;
+    expect(elapsed).toBeLessThan(400 + 200);
+    expect(verdicts.map((verdict) => verdict.evidence)).toEqual(hashes);
+    verdicts.forEach((verdict, index) => {
+      const expected = (index + 1) % 2 === 0 ? 'csam' : 'no-known-match';
+      expect(verdict.classification).toBe(expected);
+    });
+    const oddHashes = numbers.filter((n) => n % 2 === 1).map((n) => hashOf(n));
+    expect(lookup.calls).toHaveLength(1);
+    expect(lookup.calls[0]).toEqual(oddHashes);
+  }, 15_000);
 
   it('refuses a timeout or batch size that does not bound anything', () => {
     const lookup = lookupOf(() => Promise.resolve(new Map()));
