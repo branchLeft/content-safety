@@ -208,7 +208,20 @@ describe('PdqKnownMaterialCheck with an injected lookup', () => {
     expect(elapsed).toBeLessThan(400 + 200);
   }, 15_000);
 
-  it('starts the lookup no later than the one timeoutMs budget when every cache read hangs', async () => {
+  it('gives the lookup only the budget left after the cache reads', async () => {
+    const hashes = Array.from({ length: 20 }, (_, index) => hashOf(index + 1));
+    const hung: VerdictCache = { get: () => new Promise(() => undefined), put: () => new Promise(() => undefined) };
+    const lookup = lookupOf(() => new Promise(() => undefined));
+    const check = new PdqKnownMaterialCheck({ lookup, cache: hung, timeoutMs: 400, cacheTimeoutMs: 250 });
+    const started = performance.now();
+    const verdicts = await check.runBatch(hashes);
+    const elapsed = performance.now() - started;
+    expect(verdicts).toHaveLength(20);
+    expect(verdicts.every((verdict) => verdict.classification === 'unavailable')).toBe(true);
+    expect(elapsed).toBeLessThan(400 + 150);
+  }, 15_000);
+
+  it('yields unavailable and skips the lookup when cache reads use the whole budget', async () => {
     const hashes = Array.from({ length: 20 }, (_, index) => hashOf(index + 1));
     const hung: VerdictCache = { get: () => new Promise(() => undefined), put: () => new Promise(() => undefined) };
     const lookup = lookupOf((asked) => Promise.resolve(new Map(asked.map((hash) => [hash, { classification: 'no-known-match' as const }]))));
