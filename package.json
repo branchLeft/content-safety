@@ -21,8 +21,8 @@
     "@branchleft/ghost-platform-render-core": "0.1.1",
     "@branchleft/tsconfig": "0.7.0",
     "@types/node": "^26.5.1",
-    "@vitest/coverage-v8": "4.1.11",
+    "@vitest/coverage-v8": "4.1.12",
     "typescript": "^5.9.0",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   }
 }
