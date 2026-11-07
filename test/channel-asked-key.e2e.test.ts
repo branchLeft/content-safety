@@ -84,9 +84,9 @@ describe('the asked key on the wire, end to end, against a hash source that adds
     const [near, unavailable] = await Promise.all(secondRound);
 
     expect(exact).toMatchObject({ classification: 'csam', matchType: 'exact' });
-    expect(clean.classification).toBe('no-known-match');
+    expect(clean?.classification).toBe('no-known-match');
     expect(near).toMatchObject({ classification: 'test', matchType: 'near' });
-    expect(unavailable.classification).toBe('unavailable');
+    expect(unavailable?.classification).toBe('unavailable');
 
     // The unavailable hash is offered again, and its settled answer must be posted too.
     await vi.waitFor(() => {
