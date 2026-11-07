@@ -1,0 +1,193 @@
+name: Image
+
+# Builds the service's container image on every PR touching what goes into it
+# (build-only), and on push to `main` also pushes it to
+# ghcr.io/branchleft/content-safety tagged with the git SHA. There is
+# deliberately no `latest` tag: the push job reads the pushed manifest's digest
+# back from the image store, attests it, verifies the attestation once, and
+# prints `ghcr.io/branchleft/content-safety@sha256:...` in its summary. That
+# digest-qualified reference is the only thing a deployment may pin.
+#
+# GHCR authenticates with the workflow's own GITHUB_TOKEN, so there is no new
+# secret. The push job requests `packages: write`, `id-token: write` and
+# `attestations: write` only for itself, on the one trigger that ever runs it,
+# so a PR build never sits in the same permissions block as a publish
+# credential.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - Dockerfile.dockerignore
+      - package.json
+      - package-lock.json
+      - tsconfig.json
+      - tsconfig.build.json
+      - src/**
+      - scripts/image-smoke.sh
+      - .github/workflows/image.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - Dockerfile.dockerignore
+      - package.json
+      - package-lock.json
+      - tsconfig.json
+      - tsconfig.build.json
+      - src/**
+      - scripts/image-smoke.sh
+      - .github/workflows/image.yml
+  workflow_dispatch:
+
+# `packages: read` because the build installs two dev dependencies from GitHub
+# Packages. It is read-only and deliberately separate from the write grants the
+# push job gives itself.
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  build:
+    name: docker build (content-safety)
+    runs-on: ubuntu-latest
+    # workflow_dispatch has no path filter to gate on; it means "push the
+    # current main", so it goes straight to the push job below.
+    if: github.event_name != 'workflow_dispatch'
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The secret is consumed by a `RUN --mount` in the Dockerfile, so it
+      # reaches `npm ci` without entering a layer or the build history.
+      - name: Build image
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker build \
+            --secret id=node_auth_token,env=NODE_AUTH_TOKEN \
+            --tag content-safety:ci \
+            .
+
+      - name: Smoke test the image
+        run: scripts/image-smoke.sh content-safety:ci
+
+  push:
+    name: Build and push content-safety image
+    runs-on: ubuntu-latest
+    # `main` for every trigger: a manual dispatch from another ref must not
+    # publish an image.
+    if: |
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+    timeout-minutes: 20
+
+    # `id-token: write` and `attestations: write` let the run sign the pushed
+    # digest with a keyless GitHub artifact attestation (the attest step below).
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+
+    env:
+      IMAGE: ghcr.io/branchleft/content-safety
+      IMAGE_TAG: ${{ github.sha }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker build \
+            --secret id=node_auth_token,env=NODE_AUTH_TOKEN \
+            --tag "$IMAGE:$IMAGE_TAG" \
+            .
+
+      # Before the push: an image that fails to refuse as specified is never
+      # published.
+      - name: Smoke test the image
+        run: scripts/image-smoke.sh "$IMAGE:$IMAGE_TAG"
+
+      - name: Push
+        run: docker push "$IMAGE:$IMAGE_TAG"
+
+      # The digest is read from the image store after the push, never
+      # assembled from the tag or the commit. A missing or malformed digest
+      # fails the job, so no run ends green without a reference to pin.
+      - name: Read and verify the pushed digest
+        id: digest
+        run: |
+          reference="$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$IMAGE:$IMAGE_TAG" | grep "^$IMAGE@" | head -n 1)"
+          digest="${reference#*@}"
+          if ! printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo "::error::no well-formed sha256 digest for $IMAGE:$IMAGE_TAG (got: '$reference')"
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE@$digest" >> "$GITHUB_OUTPUT"
+
+      # The signed bundle is stored beside the image in the registry, so a
+      # host can verify from the registry copy with no GitHub API token.
+      - name: Attest the image
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.digest.outputs.digest }}
+          push-to-registry: true
+          # Storage records need `artifact-metadata: write`, which nothing here uses.
+          create-storage-record: false
+
+      # The identity is a literal on purpose: read from this run's own
+      # `github.workflow_ref` it would agree with itself and prove nothing. The
+      # attestation can take a moment to reach the API after `attest`, so a
+      # failed verify is retried: five attempts, waiting 12, 24, 36 and 48
+      # seconds between them.
+      - name: Verify the attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PINNED_IMAGE: ${{ steps.digest.outputs.image }}
+        run: |
+          for attempt in 1 2 3 4 5; do
+            echo "Verify attempt $attempt of 5"
+            if gh attestation verify "oci://$PINNED_IMAGE" \
+              --repo branchLeft/content-safety \
+              --signer-workflow branchLeft/content-safety/.github/workflows/image.yml \
+              --source-ref refs/heads/main \
+              --cert-oidc-issuer https://token.actions.githubusercontent.com \
+              --deny-self-hosted-runners; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 5 ]; then sleep $((attempt * 12)); fi
+          done
+          echo "::error::the attestation did not verify in 5 attempts"
+          exit 1
+
+      - name: Write outcome to job summary
+        if: always()
+        env:
+          PINNED_IMAGE: ${{ steps.digest.outputs.image }}
+        run: |
+          {
+            echo '## content-safety image push'
+            echo
+            echo "Commit: \`$IMAGE_TAG\`"
+            echo "Pin this: \`${PINNED_IMAGE:-NO DIGEST: push did not complete}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

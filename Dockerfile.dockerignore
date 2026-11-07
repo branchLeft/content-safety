@@ -1,0 +1,7 @@
+# Deny by default: only what the Dockerfile copies enters the build context.
+*
+!package.json
+!package-lock.json
+!tsconfig.json
+!tsconfig.build.json
+!src
