@@ -56,9 +56,14 @@ export function violations(dockerfile: string): readonly string[] {
 
   if (all.some((i) => i.name === 'EXPOSE')) found.push('EXPOSE: the service only dials, it has no listener');
 
-  const users = all.filter((i) => i.name === 'USER').map((i) => i.args.split(':')[0] ?? '');
+  // A numeric uid:gid, neither of them 0. A name is refused because it resolves
+  // through the base image's /etc/passwd, which the pin does not make ours.
+  const users = all.filter((i) => i.name === 'USER').map((i) => i.args);
   const last = users[users.length - 1];
-  if (last === undefined || last === 'root' || last === '0') found.push('USER: the image must end as a non-root user');
+  const numeric = last === undefined ? null : /^(\d+):(\d+)$/.exec(last);
+  if (numeric === null || Number(numeric[1]) === 0 || Number(numeric[2]) === 0) {
+    found.push('USER: the image must end as a numeric non-root uid:gid');
+  }
 
   for (const i of all.filter((x) => x.name === 'ENV' || x.name === 'ARG')) {
     const name = (i.args.split(/[\s=]/)[0] ?? '').trim();
@@ -87,7 +92,7 @@ RUN --mount=type=secret,id=node_auth_token \\
 COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
 RUN npm run build
-USER node
+USER 1000:1000
 CMD ["node", "dist/bin.js"]
 `;
 
@@ -98,12 +103,17 @@ describe('the contract checker', () => {
 
   it('rejects each way of breaking the contract, and only that', () => {
     const cases: readonly (readonly [string, string, RegExp])[] = [
-      ['a listener', GOOD.replace('USER node', 'EXPOSE 8080\nUSER node'), /^EXPOSE/],
-      ['no user', GOOD.replace('USER node\n', ''), /^USER/],
-      ['root user', GOOD.replace('USER node', 'USER root'), /^USER/],
-      ['root by number after node', GOOD.replace('USER node', 'USER node\nUSER 0'), /^USER/],
-      ['a secret-shaped ENV', GOOD.replace('USER node', 'ENV API_TOKEN=x\nUSER node'), /^ENV API_TOKEN/],
-      ['a secret-shaped ARG', GOOD.replace('USER node', 'ARG DB_PASSWORD\nUSER node'), /^ARG DB_PASSWORD/],
+      ['a listener', GOOD.replace('USER 1000:1000', 'EXPOSE 8080\nUSER 1000:1000'), /^EXPOSE/],
+      ['no user', GOOD.replace('USER 1000:1000\n', ''), /^USER/],
+      ['root user', GOOD.replace('USER 1000:1000', 'USER root'), /^USER/],
+      ['a user by name', GOOD.replace('USER 1000:1000', 'USER node'), /^USER/],
+      ['a user by name and group', GOOD.replace('USER 1000:1000', 'USER node:node'), /^USER/],
+      ['a uid with no gid', GOOD.replace('USER 1000:1000', 'USER 1000'), /^USER/],
+      ['uid 0', GOOD.replace('USER 1000:1000', 'USER 0:1000'), /^USER/],
+      ['gid 0', GOOD.replace('USER 1000:1000', 'USER 1000:0'), /^USER/],
+      ['root by number after a good user', GOOD.replace('USER 1000:1000', 'USER 1000:1000\nUSER 0:0'), /^USER/],
+      ['a secret-shaped ENV', GOOD.replace('USER 1000:1000', 'ENV API_TOKEN=x\nUSER 1000:1000'), /^ENV API_TOKEN/],
+      ['a secret-shaped ARG', GOOD.replace('USER 1000:1000', 'ARG DB_PASSWORD\nUSER 1000:1000'), /^ARG DB_PASSWORD/],
       ['a credential file copied in', GOOD.replace('COPY src ./src', 'COPY src credential.txt ./'), /^COPY credential\.txt/],
       ['the whole context copied in', GOOD.replace('COPY src ./src', 'COPY . .'), /^COPY \./],
       ['a key file added', GOOD.replace('COPY src ./src', 'ADD signing.key /etc/'), /^ADD signing\.key/],

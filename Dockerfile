@@ -4,7 +4,7 @@
 
 # bookworm-slim for the same reason as the platform's other Node images: it
 # tracks Debian's glibc and Node's own release-testing matrix.
-FROM node:26.5.0-bookworm-slim
+FROM node:26.5.0-bookworm-slim@sha256:2d49d876e96237d76de412761cf05dbfe5aee325cc4406a4d41d5824c5bb8beb
 
 WORKDIR /app
 
@@ -31,5 +31,7 @@ RUN npm prune --omit=dev
 # No config, credential, signing key or audit file is baked in. All four are
 # bind-mounted at run time and named by --config or SAFETY_SERVICE_CONFIG. The
 # service only dials out, so there is nothing to expose.
-USER node
+# Numeric, so the non-root check does not depend on the base image's /etc/passwd.
+# 1000:1000 is the base image's `node` user.
+USER 1000:1000
 CMD ["node", "dist/bin.js"]

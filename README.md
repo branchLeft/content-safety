@@ -2,7 +2,7 @@
 
 The safety service for the branchLeft Ghost platform. It checks uploaded media against known-abuse hash lists (Arachnid Shield) before publication. It is designed to be reusable by other organisations later, so it carries no Ghost-specific assumptions.
 
-**Status: the service core and its transport, tested locally against stubs, not deployed. It is built as a digest-pinned, attested container image (`Dockerfile`, `.github/workflows/image.yml`).** This repository holds no credential and no test touches a live service. The service reads its credential from a file on the host that runs it.
+**Status: the service core and its transport, tested locally against stubs, not deployed. It is intended to ship as a digest-pinned, attested container image (`Dockerfile`, `.github/workflows/image.yml`); no image is built or attested until the first push job on `main` is green.** This repository holds no credential and no test touches a live service. The service reads its credential from a file on the host that runs it.
 
 ## What is here
 
@@ -53,7 +53,7 @@ The configuration names four files and the hosts to dial:
 
 ### As an image
 
-- Entrypoint `node dist/bin.js`, as uid 1000 (`USER node`). The image exposes no port: the service only dials.
+- Entrypoint `node dist/bin.js`, as uid:gid 1000:1000 (`USER 1000:1000`). The image exposes no port: the service only dials.
 - The configuration path comes from `--config` or `SAFETY_SERVICE_CONFIG`. The configuration, credential, signing key and audit file are bind-mounted at run time; none is baked into the image.
 - The credential, signing key and audit file must be owned by uid 1000 and mode 0600 or tighter. The service refuses a file open to group or others.
 - Exit codes: 0 stopped cleanly, 1 refused to start, 2 no configuration named.
