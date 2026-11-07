@@ -57,6 +57,7 @@ No query string and no body. The host holds the request open until it has hashes
 ```
 
 - `matchType` is present only when the source gave one.
+- The asked key is `hash`: each entry names the hash the host offered, and a batch is answered for exactly the hashes it offered, each once, under that batch's own name.
 - `decision` is the service's one policy applied to the verdict, in one of three shapes: `{ "action": "allow" }`, `{ "action": "hold", "reason": "unavailable | context-rejected | audit-unavailable" }`, or `{ "action": "refuse", "tier": "one | two", "irreversible": bool, "control": bool, "steps": [...] }`. `steps` names what the host is asked to do; the host acts on the ones that are its own and ignores the rest.
 - `audited: false` means no record of the decision was written; the decision stands.
 - **`unavailable` means "no answer": the host holds the upload and keeps the hash queued to be offered again.** Every hash in a batch that the service accepted is answered, `unavailable` included; a batch is never dropped silently. A hash the service could not read is simply absent, and the host offers it again when its lease on the batch ends.
