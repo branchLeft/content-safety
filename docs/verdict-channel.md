@@ -64,6 +64,14 @@ No query string and no body. The host holds the request open until it has hashes
 - 204, and only 204, means the host took the verdicts. 409 means the host no longer holds that batch (its lease ended); the service does not retry it. Any other status, a 200 included, is a failure and the service backs off.
 - **A batch answered wholly `unavailable` is counted as degraded, and the service backs off exactly as for a failure.** Without that, a hash source that is down and a host that offers its hashes again at once would make a storm of requests against the source. Pacing the re-offer is the host's to build too: the contract asks a host to wait before it offers an `unavailable` hash again.
 
+## Reading a verdicts body
+
+`src/verdict-schema.ts` is the reader of the body above: the host end and any conformance test for a host run it on what the service posts, and the service's own end-to-end tests do.
+
+- `parseVerdictsBody` is strict. A wrong `v`, a missing or mistyped field, a value outside a field's set, or a field the version does not name makes the whole body unreadable, and an unreadable body is no answer.
+- `answersFor` keys the answers by the hash the host offered, under the batch it offered them in. A body for another batch, a hash that was not offered, and a hash answered twice give no answer.
+- `admits` is true only for a `no-known-match` that the service also turned into `allow`. `mayPass` is true only when a verdict arrived and admits the hash, so a hash with no verdict is not a pass.
+
 ## What a host must do with silence
 
 A host that has had no verdict for a hash, for whatever reason, holds the object and serves nothing. An allow is only ever a `no-known-match` verdict with `action: allow`.

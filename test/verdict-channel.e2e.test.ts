@@ -1,6 +1,7 @@
 import { stat } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parsePdqHash } from '../src/pdq-hash.js';
+import { admits, parseVerdictsBody } from '../src/verdict-schema.js';
 import { hashOf } from './helpers/fixtures.js';
 import { makeSigningKey } from './helpers/keys.js';
 import { SENTINEL_CREDENTIAL, startRig, type Rig } from './helpers/rig.js';
@@ -76,6 +77,35 @@ describe('the verdict channel, end to end, with a host that only listens', () =>
       const latest = rig?.host.history(hashOf(7)).at(-1);
       expect(latest?.classification).toBe('no-known-match');
     });
+  });
+
+  it('lets an upload pass only on a clean verdict, whatever the hash source does', async () => {
+    rig = await startRig({ arachnidTimeoutMs: 200, listed: new Map([[hashOf(1), csamExact]]) });
+    await rig.start();
+    const mayPassNow = (hash: string): boolean => {
+      const posted = rig?.host.requests.filter((request) => request.method === 'POST') ?? [];
+      return posted.some((request) => {
+        const body = parseVerdictsBody(JSON.parse(request.body));
+        const entry = body?.verdicts.find((candidate) => candidate.hash === hash);
+        return entry !== undefined && admits(entry);
+      });
+    };
+
+    await rig.host.submit(hashOf(1));
+    await rig.host.submit(hashOf(2));
+    expect(mayPassNow(hashOf(1))).toBe(false);
+    expect(mayPassNow(hashOf(2))).toBe(true);
+
+    for (const [index, mode] of (['never-answer', 'server-error', 'redirect'] as const).entries()) {
+      rig.arachnid.mode = mode;
+      const held = await rig.host.submit(hashOf(10 + index));
+      expect(held.classification).toBe('unavailable');
+      expect(mayPassNow(hashOf(10 + index))).toBe(false);
+    }
+    // Every body the service posted is one a host can read.
+    for (const request of rig.host.requests.filter((candidate) => candidate.method === 'POST')) {
+      expect(parseVerdictsBody(JSON.parse(request.body))).toBeDefined();
+    }
   });
 
   it('sends only hashes upstream, and never lets a value that is not a hash reach the source', async () => {

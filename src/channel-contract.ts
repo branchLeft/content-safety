@@ -15,7 +15,7 @@ export const MAX_BATCH_HASHES = 500;
 
 export const MAX_BODY_BYTES = 256 * 1024;
 
-const BATCH_ID = /^[A-Za-z0-9._-]{16,128}$/;
+export const BATCH_ID = /^[A-Za-z0-9._-]{16,128}$/;
 
 export interface PendingBatch {
   /** Names the lease the host holds on these hashes; echoed back with the verdicts. */
