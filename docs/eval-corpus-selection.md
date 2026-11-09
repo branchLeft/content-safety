@@ -124,7 +124,7 @@ A check with a recall that cannot be measured is not blocked from shipping: ever
 
 ## The ceiling comes first
 
-A false-positive ceiling, agreed before any number exists, caps how far a curve may be read: no check enforces above it however good it looks. It is not set here and the harness has no default. The first run must not begin until it is recorded, and the report echoes the ceiling and its basis so a run that used a different one is visible. The harness offers two bases: the observed rate, or the upper end of a 95 per cent Wilson interval, which a small corpus cannot flatter.
+A false-positive ceiling, agreed before any number exists, caps how far a curve may be read: no check enforces above it however good it looks. It is not set here and the harness has no default. The owner has delegated choosing it to the design owner, so it is not one of the owner's decisions below, but the first run must not begin until it is recorded, and the report echoes the ceiling and its basis so a run that used a different one is visible. The harness offers two bases: the observed rate, or the upper end of a 95 per cent Wilson interval, which a small corpus cannot flatter.
 
 ## Selection by procedure, not by taste
 
@@ -138,9 +138,8 @@ Choosing the sources and strata is the owner's editorial judgement. Drawing item
 4. **Whether the platform may hold the Counter extremist-text corpus.** A legal view; absent one, it is left out.
 5. **Targeting packages:** accept false-positive-only measurement, or approve a proxy positive set (which edges toward authoring) or an approach to researchers.
 6. **Solicitation in text:** accept false-positive-only measurement, or route the genuine-harm measurement through an institution that already lawfully holds such material and returns counts only.
-7. **The ceiling and its basis**, before the first run.
 
-Time: one sitting of about thirty minutes for decisions 1, 2, 5 and 6 on the card, which is a forecast and not a schedule. Writing to the authors is a few minutes of the owner's time, with an external wait for a reply.
+Time: one sitting of about thirty minutes for the six decisions on the card, which is a forecast and not a schedule. Writing to the authors is a few minutes of the owner's time, with an external wait for a reply.
 
 ## After the choice
 
