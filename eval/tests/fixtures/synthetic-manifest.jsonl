@@ -1,0 +1,15 @@
+{"manifest_version": 1, "check": "synthetic-check", "corpora": [{"id": "SYNTHETIC_CORPUS", "version": "0", "licence": "SYNTHETIC", "source_url": "https://example.invalid/synthetic"}]}
+{"id": "n01", "text": "SYNTHETIC_NEGATIVE_TEXT_n01", "population": "challenging_benign", "corpus": "SYNTHETIC_CORPUS", "stratum": "quoted-in-news"}
+{"id": "n02", "text": "SYNTHETIC_NEGATIVE_TEXT_n02", "population": "challenging_benign", "corpus": "SYNTHETIC_CORPUS", "stratum": "quoted-in-news"}
+{"id": "n03", "text": "SYNTHETIC_NEGATIVE_TEXT_n03", "population": "challenging_benign", "corpus": "SYNTHETIC_CORPUS", "stratum": "quoted-in-news"}
+{"id": "n04", "text": "SYNTHETIC_NEGATIVE_TEXT_n04", "population": "challenging_benign", "corpus": "SYNTHETIC_CORPUS", "stratum": "quoted-in-news"}
+{"id": "n05", "text": "SYNTHETIC_NEGATIVE_TEXT_n05", "population": "challenging_benign", "corpus": "SYNTHETIC_CORPUS", "stratum": "quoted-in-news"}
+{"id": "n06", "text": "SYNTHETIC_NEGATIVE_TEXT_n06", "population": "challenging_benign", "corpus": "SYNTHETIC_CORPUS", "stratum": "plain"}
+{"id": "n07", "text": "SYNTHETIC_NEGATIVE_TEXT_n07", "population": "challenging_benign", "corpus": "SYNTHETIC_CORPUS", "stratum": "plain"}
+{"id": "n08", "text": "SYNTHETIC_NEGATIVE_TEXT_n08", "population": "challenging_benign", "corpus": "SYNTHETIC_CORPUS", "stratum": "plain"}
+{"id": "n09", "text": "SYNTHETIC_NEGATIVE_TEXT_n09", "population": "challenging_benign", "corpus": "SYNTHETIC_CORPUS", "stratum": "plain"}
+{"id": "n10", "text": "SYNTHETIC_NEGATIVE_TEXT_n10", "population": "challenging_benign", "corpus": "SYNTHETIC_CORPUS", "stratum": "plain"}
+{"id": "h01", "text": "SYNTHETIC_HARM_TEXT_h01", "population": "genuine_harm", "corpus": "SYNTHETIC_CORPUS", "stratum": "harm-a"}
+{"id": "h02", "text": "SYNTHETIC_HARM_TEXT_h02", "population": "genuine_harm", "corpus": "SYNTHETIC_CORPUS", "stratum": "harm-a"}
+{"id": "h03", "text": "SYNTHETIC_HARM_TEXT_h03", "population": "genuine_harm", "corpus": "SYNTHETIC_CORPUS", "stratum": "harm-b"}
+{"id": "h04", "text": "SYNTHETIC_HARM_TEXT_h04", "population": "genuine_harm", "corpus": "SYNTHETIC_CORPUS", "stratum": "harm-b"}

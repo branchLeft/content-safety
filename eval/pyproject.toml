@@ -1,0 +1,28 @@
+[project]
+name = "corpus-eval"
+version = "0.0.0"
+description = "Measures one moderation check against a corpus manifest: precision, recall and error counts per population."
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["."]
+
+[tool.ruff.lint]
+preview = true
+explicit-preview-rules = true
+extend-select = ["TRY", "BLE", "N", "ANN", "S", "DOC501"]
+# Every refusal here is one line naming the input at fault; a message class per
+# refusal would hide that line from the reader of the raise.
+ignore = ["TRY003"]
+
+[tool.ruff.lint.per-file-ignores]
+# assert is how unittest tests state expectations.
+"tests/**" = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+disallow_any_explicit = true

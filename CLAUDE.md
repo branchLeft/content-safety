@@ -26,6 +26,16 @@ npm run coverage   # unit tests, 90% threshold on every metric
 
 Tests never reach a live service: the hash endpoint is a local stub (`test/helpers/stub-arachnid.ts`) and there is no credential anywhere in this repo.
 
+## Evaluation harness
+
+`eval/` is a Python tool (standard library only, not shipped in the image) that measures a moderation check against a corpus manifest. See `docs/eval-harness.md`. It is held to strict `mypy` and `ruff`, and no corpus text is ever committed: the fixtures are placeholders.
+
+```sh
+cd eval
+python3 -m unittest discover -s tests -t .
+ruff check . && ruff format --check . && mypy corpus_eval tests
+```
+
 ## Comment style
 
 Comments state what the code cannot: a constraint, an invariant, a reason a naive approach fails. They do not narrate what the code does, and they do not record the development process — no ticket IDs, no names, no dated verification logs, no decision history. A work-item reference never appears in shipped source at all, not even a comment.
