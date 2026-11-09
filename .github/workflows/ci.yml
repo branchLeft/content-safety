@@ -45,3 +45,30 @@ jobs:
 
       - name: Test with coverage
         run: npm run coverage
+
+  eval-harness:
+    name: Evaluation harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: eval
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned linters
+        run: python3 -m pip install ruff==0.17.3 mypy==2.4.1
+
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -t .
+
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Type check
+        run: mypy corpus_eval tests
