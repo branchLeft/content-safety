@@ -53,6 +53,7 @@ export {
   VERDICTS_PATH,
 } from './channel-contract.js';
 export type { PendingBatch, VerdictEntry, VerdictsBody } from './channel-contract.js';
+export { admits, answersFor, mayPass, parseVerdictsBody } from './verdict-schema.js';
 export { ConfigError, loadConfig, parseConfig } from './config.js';
 export type { HostConfig, ServiceConfig } from './config.js';
 export { readSecretFile, Secret, SecretFileError } from './credential.js';
