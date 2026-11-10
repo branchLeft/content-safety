@@ -7,14 +7,18 @@ import { makeSigningKey, type TestSigningKey } from './keys.js';
 import { startStandInHost, type StandInHost } from './stand-in-host.js';
 import { startStubArachnid, type StubArachnid, type StubEntry } from './stub-arachnid.js';
 
-/** A recognisable stand-in for a credential: nothing real, easy to search for. */
-export const SENTINEL_CREDENTIAL = 'Basic TEST_SENTINEL_CREDENTIAL_0123456789';
+/** Recognisable stand-ins for the pair: nothing real, easy to search for. The password holds a colon on purpose. */
+export const SENTINEL_USERNAME = 'TEST_SENTINEL_USER_0123456789';
+export const SENTINEL_PASSWORD = 'TEST_SENTINEL_PASS_0123:456789';
+/** What the hash source must be shown for the pair above (RFC 7617). */
+export const SENTINEL_AUTHORIZATION = `Basic ${Buffer.from(`${SENTINEL_USERNAME}:${SENTINEL_PASSWORD}`, 'utf8').toString('base64')}`;
 
 export interface RigOptions {
   readonly listed?: Map<string, StubEntry>;
   readonly arachnidTimeoutMs?: number;
   readonly hostKind?: 'demo' | 'tenant';
-  readonly credential?: string;
+  readonly username?: string;
+  readonly password?: string;
   readonly key?: TestSigningKey;
   readonly hostKey?: TestSigningKey;
   readonly holdMs?: number;
@@ -27,7 +31,8 @@ export interface Rig {
   readonly config: ServiceConfig;
   readonly logs: string[];
   readonly auditPath: string;
-  readonly credentialPath: string;
+  readonly usernamePath: string;
+  readonly passwordPath: string;
   readonly keyPath: string;
   start(): Promise<RunningService>;
   auditLines(): Promise<string[]>;
@@ -41,16 +46,24 @@ export async function startRig(options: RigOptions = {}): Promise<Rig> {
   const arachnid = await startStubArachnid(options.listed ?? new Map());
   const host = await startStandInHost({ publicKey: hostKey.publicKey, ...(options.holdMs === undefined ? {} : { holdMs: options.holdMs }) });
 
-  const credentialPath = join(dir, 'credential');
+  const usernamePath = join(dir, 'username');
+  const passwordPath = join(dir, 'password');
   const keyPath = join(dir, 'signing-key');
   const auditPath = join(dir, 'audit.jsonl');
-  await writeFile(credentialPath, `${options.credential ?? SENTINEL_CREDENTIAL}\n`, { mode: 0o600 });
+  await writeFile(usernamePath, `${options.username ?? SENTINEL_USERNAME}\n`, { mode: 0o600 });
+  await writeFile(passwordPath, `${options.password ?? SENTINEL_PASSWORD}\n`, { mode: 0o600 });
   await writeFile(keyPath, `${key.seedBase64}\n`, { mode: 0o600 });
-  await chmod(credentialPath, 0o600);
+  await chmod(usernamePath, 0o600);
+  await chmod(passwordPath, 0o600);
   await chmod(keyPath, 0o600);
 
   const config = parseConfig({
-    arachnid: { baseUrl: arachnid.baseUrl, credentialFile: credentialPath, timeoutMs: options.arachnidTimeoutMs ?? 300 },
+    arachnid: {
+      baseUrl: arachnid.baseUrl,
+      usernameFile: usernamePath,
+      passwordFile: passwordPath,
+      timeoutMs: options.arachnidTimeoutMs ?? 300,
+    },
     channel: {
       signingKeyFile: keyPath,
       pollTimeoutMs: 2000,
@@ -81,7 +94,8 @@ export async function startRig(options: RigOptions = {}): Promise<Rig> {
     config,
     logs,
     auditPath,
-    credentialPath,
+    usernamePath,
+    passwordPath,
     keyPath,
     async start(): Promise<RunningService> {
       const service = await startService(config, {

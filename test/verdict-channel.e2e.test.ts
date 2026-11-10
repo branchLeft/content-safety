@@ -4,7 +4,7 @@ import { parsePdqHash } from '../src/pdq-hash.js';
 import { admits, parseVerdictsBody } from '../src/verdict-schema.js';
 import { hashOf } from './helpers/fixtures.js';
 import { makeSigningKey } from './helpers/keys.js';
-import { SENTINEL_CREDENTIAL, startRig, type Rig } from './helpers/rig.js';
+import { SENTINEL_AUTHORIZATION, SENTINEL_PASSWORD, SENTINEL_USERNAME, startRig, type Rig } from './helpers/rig.js';
 
 let rig: Rig | undefined;
 
@@ -137,14 +137,17 @@ describe('the verdict channel, end to end, with a host that only listens', () =>
     rig.arachnid.mode = 'server-error';
     await rig.host.submit(hashOf(2));
 
-    const secretPart = 'TEST_SENTINEL_CREDENTIAL';
+    // Each half, and the encoded header that carries both.
+    const secretParts = [SENTINEL_USERNAME, SENTINEL_PASSWORD, SENTINEL_AUTHORIZATION, SENTINEL_AUTHORIZATION.slice('Basic '.length)];
     expect(rig.logs.length).toBeGreaterThan(0);
-    expect(rig.logs.join('\n')).not.toContain(secretPart);
-    expect((await rig.auditLines()).join('\n')).not.toContain(secretPart);
-    expect(JSON.stringify(rig.host.requests)).not.toContain(secretPart);
-    expect(rig.arachnid.requests.map((request) => request.body).join('\n')).not.toContain(secretPart);
-    // The credential was used: it is what the hash source was shown, as the header value.
-    expect(rig.arachnid.requests[0]?.authorization).toBe(SENTINEL_CREDENTIAL);
+    for (const secretPart of secretParts) {
+      expect(rig.logs.join('\n')).not.toContain(secretPart);
+      expect((await rig.auditLines()).join('\n')).not.toContain(secretPart);
+      expect(JSON.stringify(rig.host.requests)).not.toContain(secretPart);
+      expect(rig.arachnid.requests.map((request) => request.body).join('\n')).not.toContain(secretPart);
+    }
+    // The pair was used: the hash source was shown HTTP Basic for it, as the header value.
+    expect(rig.arachnid.requests[0]?.authorization).toBe(SENTINEL_AUTHORIZATION);
   });
 
   it('is not recognised by a host that holds a different public key, and asks the source for nothing', async () => {

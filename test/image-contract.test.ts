@@ -8,7 +8,7 @@ const DOCKERFILE = join(dirname(fileURLToPath(import.meta.url)), '..', 'Dockerfi
 const SECRET_NAME = /KEY|SECRET|TOKEN|CRED|PASS/i;
 
 // Everything the image may copy in: the manifests, the compiler settings and
-// the source. Config, credential, key and audit files are bind-mounted at run
+// the source. Config, username, password, key and audit files are bind-mounted at run
 // time, so a path that names any of them is a defect, not an omission.
 const COPYABLE = /^(?:\.\/)?(?:package(?:-lock)?\.json|tsconfig(?:\.build)?\.json|src\/?|dist\/?)$/;
 

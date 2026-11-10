@@ -44,6 +44,28 @@ export class Secret {
 }
 
 /**
+ * The hash source takes HTTP Basic (RFC 7617): a username and a password, not
+ * one token. The first colon splits the pair, so a colon in the username would
+ * move the split; a colon in the password is fine. The result is the whole
+ * header value, held as a `Secret` so it logs and serialises as a placeholder.
+ * Messages name the half and never its content.
+ */
+export function basicAuthorization(username: Secret, password: Secret): Secret {
+  for (const [label, half] of [
+    ['hash source username', username.reveal()],
+    ['hash source password', password.reveal()],
+  ] as const) {
+    if (half.length === 0) throw new SecretFileError(`${label}: is empty`);
+    if (/[\u0000-\u001f\u007f]/.test(half)) throw new SecretFileError(`${label}: holds a control character`);
+  }
+  if (username.reveal().includes(':')) {
+    throw new SecretFileError('hash source username: must not contain a colon');
+  }
+  const pair = Buffer.from(`${username.reveal()}:${password.reveal()}`, 'utf8');
+  return new Secret(`Basic ${pair.toString('base64')}`);
+}
+
+/**
  * Never an environment value, which children inherit and diagnostics show.
  * A file readable by anyone but its owner is refused outright.
  */

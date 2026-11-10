@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspect } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readSecretFile, Secret, SecretFileError } from '../src/credential.js';
+import { basicAuthorization, readSecretFile, Secret, SecretFileError } from '../src/credential.js';
 
 const VALUE = 'TEST_SENTINEL_VALUE_ABCDEF';
 let dir: string;
@@ -92,5 +92,57 @@ describe('readSecretFile and a path that is not the file itself', () => {
 
     expect(message).toContain('symbolic link');
     expect(message).not.toContain(VALUE);
+  });
+});
+
+describe('basicAuthorization', () => {
+  const USER = 'TEST_SENTINEL_USER';
+  const PASS = 'TEST_SENTINEL_PASS:with-colon';
+
+  function refusalOf(user: string, pass: string): string {
+    try {
+      basicAuthorization(new Secret(user), new Secret(pass));
+    } catch (error) {
+      expect(error).toBeInstanceOf(SecretFileError);
+      return (error as Error).message;
+    }
+    throw new Error('expected a refusal');
+  }
+
+  it('joins the pair as RFC 7617 does, keeping a colon inside the password', () => {
+    const header = basicAuthorization(new Secret(USER), new Secret(PASS));
+
+    expect(header.reveal()).toBe(`Basic ${Buffer.from(`${USER}:${PASS}`, 'utf8').toString('base64')}`);
+    expect(Buffer.from(header.reveal().slice('Basic '.length), 'base64').toString('utf8')).toBe(`${USER}:${PASS}`);
+  });
+
+  it('encodes a non-ASCII half as UTF-8', () => {
+    const header = basicAuthorization(new Secret('usér'), new Secret('pässword'));
+
+    expect(Buffer.from(header.reveal().slice('Basic '.length), 'base64').toString('utf8')).toBe('usér:pässword');
+  });
+
+  it('returns a value that logs and serialises as a placeholder', () => {
+    const header = basicAuthorization(new Secret(USER), new Secret(PASS));
+
+    for (const shown of [String(header), JSON.stringify({ header }), inspect(header)]) {
+      expect(shown).not.toContain('Basic');
+      expect(shown).not.toContain(USER);
+    }
+  });
+
+  it('refuses a username that holds a colon, which would move the split, and never quotes either half', () => {
+    const message = refusalOf(`${USER}:more`, PASS);
+
+    expect(message).toContain('hash source username');
+    expect(message).not.toContain(USER);
+    expect(message).not.toContain(PASS);
+  });
+
+  it('refuses an empty half and any control character in either half', () => {
+    expect(refusalOf('', PASS)).toContain('hash source username');
+    expect(refusalOf(USER, '')).toContain('hash source password');
+    expect(refusalOf(`${USER}\tx`, PASS)).toContain('hash source username');
+    expect(refusalOf(USER, `${PASS}\u007f`)).toContain('hash source password');
   });
 });

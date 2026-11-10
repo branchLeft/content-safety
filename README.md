@@ -20,7 +20,7 @@ The safety service for the branchLeft Ghost platform. It checks uploaded media a
 | `src/channel-contract.ts` | The wire contract's constants, the strict reader of a poll answer and the builder of a verdicts body. See [docs/verdict-channel.md](docs/verdict-channel.md). |
 | `src/host-channel.ts` | One host's channel: poll, assess, return verdicts, back off, stop. Dials; never listens. |
 | `src/request-signer.ts` | Ed25519 request signing, so a host can tell this service from anyone else who reaches it. |
-| `src/credential.ts` | Reads a secret from an owner-only file into a value that logs and serialises as a placeholder. |
+| `src/credential.ts` | Reads a secret from an owner-only file into a value that logs and serialises as a placeholder, and joins the username and password into the Basic header value. |
 | `src/config.ts` | The service's configuration file: strict, with no default that names a file, host or address. |
 | `src/audit-file.ts` | The audit trail as an append-only, synced, owner-only file. |
 | `src/service-runner.ts`, `src/main.ts`, `src/bin.ts` | The process: read both secrets, open the audit file, dial every host, stop on a signal. |
@@ -32,11 +32,11 @@ npm run build
 SAFETY_SERVICE_CONFIG=CONFIG_FILE_PATH npm start
 ```
 
-The configuration names four files and the hosts to dial:
+The configuration names five files and the hosts to dial:
 
 ```json
 {
-  "arachnid": { "baseUrl": "https://HASH_SOURCE_ORIGIN", "credentialFile": "CREDENTIAL_FILE_PATH" },
+  "arachnid": { "baseUrl": "https://HASH_SOURCE_ORIGIN", "usernameFile": "USERNAME_FILE_PATH", "passwordFile": "PASSWORD_FILE_PATH" },
   "channel": { "signingKeyFile": "SIGNING_KEY_FILE_PATH" },
   "cache": { "negativeTtlMs": 86400000 },
   "audit": { "file": "AUDIT_FILE_PATH" },
@@ -46,7 +46,7 @@ The configuration names four files and the hosts to dial:
 }
 ```
 
-- The credential file holds the complete `Authorization` header value on one line, because the form the supplier takes is not stated in its published specification. It is read once, never from the environment. It must be a regular file: a symbolic link is refused, and so is a file readable by anyone but its owner (checked on the one descriptor the file is read from).
+- The hash source authenticates with HTTP Basic, so its credential is a pair: a username and a password. `arachnid.usernameFile` and `arachnid.passwordFile` name two different files, each holding one line. The two are joined as RFC 7617 does (`Authorization: Basic base64(username:password)`); a colon in the username, an empty half and a control character in either half are refused, naming the half and never its content. Each is read once, never from the environment. Each must be a regular file: a symbolic link is refused, and so is a file readable by anyone but its owner (checked on the one descriptor the file is read from). The retired `arachnid.credentialFile` setting is refused as an unknown key.
 - The signing key file holds the base64 of a 32-byte Ed25519 seed. Hosts hold only the public key.
 - The process refuses to start, with exit code 1 and a one-line reason that never quotes a file's content, when a file is missing, empty or open to others, or a setting is absent or unknown.
 - Output is one JSON line per event, carrying fixed names and counts only.
@@ -54,8 +54,8 @@ The configuration names four files and the hosts to dial:
 ### As an image
 
 - Entrypoint `node dist/bin.js`, as uid:gid 1000:1000 (`USER 1000:1000`). The image exposes no port: the service only dials.
-- The configuration path comes from `--config` or `SAFETY_SERVICE_CONFIG`. The configuration, credential, signing key and audit file are bind-mounted at run time; none is baked into the image.
-- The credential, signing key and audit file must be owned by uid 1000 and mode 0600 or tighter. The service refuses a file open to group or others.
+- The configuration path comes from `--config` or `SAFETY_SERVICE_CONFIG`. The configuration, the username and password files, the signing key and the audit file are bind-mounted at run time; none is baked into the image.
+- The username file, password file, signing key and audit file must be owned by uid 1000 and mode 0600 or tighter. The service refuses a file open to group or others.
 - Exit codes: 0 stopped cleanly, 1 refused to start, 2 no configuration named.
 - Images are tagged by commit only, never `latest`, and pulled by the digest the push job prints. `gh attestation verify` checks the build provenance.
 
