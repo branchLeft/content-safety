@@ -56,7 +56,7 @@ export type { PendingBatch, VerdictEntry, VerdictsBody } from './channel-contrac
 export { admits, answersFor, mayPass, parseVerdictsBody } from './verdict-schema.js';
 export { ConfigError, loadConfig, parseConfig } from './config.js';
 export type { HostConfig, ServiceConfig } from './config.js';
-export { readSecretFile, Secret, SecretFileError } from './credential.js';
+export { basicAuthorization, readSecretFile, Secret, SecretFileError } from './credential.js';
 export { HostChannel } from './host-channel.js';
 export type { HostChannelOptions, LogFields, Logger, RoundOutcome } from './host-channel.js';
 export { CONFIG_ENV, runMain } from './main.js';

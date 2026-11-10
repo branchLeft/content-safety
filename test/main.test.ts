@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CONFIG_ENV, runMain } from '../src/main.js';
 import { hashOf } from './helpers/fixtures.js';
-import { SENTINEL_CREDENTIAL, startRig, type Rig } from './helpers/rig.js';
+import { SENTINEL_PASSWORD, SENTINEL_USERNAME, startRig, type Rig } from './helpers/rig.js';
 
 let rig: Rig | undefined;
 
@@ -42,43 +42,71 @@ describe('runMain', () => {
     expect(run.lines.join('\n')).toContain('refused-to-start');
   });
 
-  it('refuses to start with no credential file configured, and says which setting', async () => {
+  it('refuses to start with either half of the pair not configured, and says which setting', async () => {
     rig = await startRig();
-    const path = await configFile(rig, (c) => delete c.arachnid.credentialFile);
-    const run = io();
+    for (const setting of ['usernameFile', 'passwordFile', 'credentialFile']) {
+      const path = await configFile(rig, (c) => {
+        if (setting === 'credentialFile') c.arachnid.credentialFile = c.arachnid.usernameFile;
+        else delete c.arachnid[setting];
+      });
+      const run = io();
 
-    expect(await runMain(['--config', path], {}, run.api)).toBe(1);
-    expect(run.lines.join('\n')).toContain('arachnid.credentialFile');
+      expect(await runMain(['--config', path], {}, run.api)).toBe(1);
+      // An old single-value setting is refused as unknown, not quietly ignored.
+      expect(run.lines.join('\n')).toContain(setting === 'credentialFile' ? 'arachnid has an unknown key' : `arachnid.${setting}`);
+    }
     expect(rig.host.requests).toHaveLength(0);
     expect(rig.arachnid.requests).toHaveLength(0);
   });
 
-  it('refuses to start when the credential file is missing, empty or open to others, without quoting it', async () => {
+  it('refuses to start when either file is missing, empty or open to others, without quoting the pair', async () => {
     rig = await startRig();
     const path = await configFile(rig);
 
-    const cases: [() => Promise<void>, string][] = [
-      [() => rm(rig!.credentialPath), 'cannot be read'],
-      [() => writeFile(rig!.credentialPath, '\n', { mode: 0o600 }), 'is empty'],
-      [
-        async () => {
-          await writeFile(rig!.credentialPath, `${SENTINEL_CREDENTIAL}\n`);
-          await chmod(rig!.credentialPath, 0o644);
-        },
-        'readable by group or others',
-      ],
-    ];
-    for (const [arrange, expected] of cases) {
-      await arrange();
-      const run = io();
+    for (const [target, label] of [
+      [rig.usernamePath, 'hash source username'],
+      [rig.passwordPath, 'hash source password'],
+    ] as const) {
+      const cases: [() => Promise<void>, string][] = [
+        [() => rm(target), 'cannot be read'],
+        [() => writeFile(target, '\n', { mode: 0o600 }), 'is empty'],
+        [
+          async () => {
+            await writeFile(target, `${SENTINEL_USERNAME}\n`);
+            await chmod(target, 0o644);
+          },
+          'readable by group or others',
+        ],
+      ];
+      for (const [arrange, expected] of cases) {
+        await arrange();
+        const run = io();
 
-      expect(await runMain(['--config', path], {}, run.api)).toBe(1);
+        expect(await runMain(['--config', path], {}, run.api)).toBe(1);
 
-      const output = run.lines.join('\n');
-      expect(output).toContain(expected);
-      expect(output).not.toContain('TEST_SENTINEL_CREDENTIAL');
+        const output = run.lines.join('\n');
+        expect(output).toContain(expected);
+        expect(output).toContain(label);
+        expect(output).not.toContain('TEST_SENTINEL_USER');
+        expect(output).not.toContain('TEST_SENTINEL_PASS');
+      }
+      // Put it back, so the other half is the only thing wrong next time round.
+      await writeFile(target, `${target === rig.usernamePath ? SENTINEL_USERNAME : SENTINEL_PASSWORD}\n`, { mode: 0o600 });
+      await chmod(target, 0o600);
     }
     expect(rig.host.requests).toHaveLength(0);
+  });
+
+  it('refuses to start on a username that cannot be one half of a Basic pair, without quoting it', async () => {
+    rig = await startRig();
+    await writeFile(rig.usernamePath, 'TEST_SENTINEL_USER:with-colon\n', { mode: 0o600 });
+    const run = io();
+
+    expect(await runMain(['--config', await configFile(rig)], {}, run.api)).toBe(1);
+
+    expect(run.lines.join('\n')).toContain('hash source username');
+    expect(run.lines.join('\n')).not.toContain('TEST_SENTINEL_USER');
+    expect(rig.arachnid.requests).toHaveLength(0);
   });
 
   it('refuses to start on a signing key that is not a key, and names only its class otherwise', async () => {
@@ -120,7 +148,8 @@ describe('runMain', () => {
     expect(events).toContain('batch-answered');
     expect(events.slice(-2)).toEqual(['stopping', 'stopped']);
     expect(JSON.parse(run.lines[0] ?? '{}')).toMatchObject({ at: '2026-01-01T00:00:00.000Z', event: 'started', hosts: 1 });
-    expect(run.lines.join('\n')).not.toContain('TEST_SENTINEL_CREDENTIAL');
+    expect(run.lines.join('\n')).not.toContain('TEST_SENTINEL_USER');
+    expect(run.lines.join('\n')).not.toContain('TEST_SENTINEL_PASS');
   });
 });
 

@@ -7,7 +7,7 @@ import { MAX_NEGATIVE_TTL_MS } from '../src/verdict-cache.js';
 
 function valid(): Record<string, unknown> {
   return {
-    arachnid: { baseUrl: 'https://hash-source.example.invalid', credentialFile: 'CREDENTIAL_FILE_PATH' },
+    arachnid: { baseUrl: 'https://hash-source.example.invalid', usernameFile: 'USERNAME_FILE_PATH', passwordFile: 'PASSWORD_FILE_PATH' },
     channel: { signingKeyFile: 'SIGNING_KEY_FILE_PATH' },
     cache: { negativeTtlMs: 3_600_000 },
     audit: { file: 'AUDIT_FILE_PATH' },
@@ -42,7 +42,8 @@ describe('parseConfig', () => {
   it('reads a complete configuration and fills only budgets', () => {
     const config = parseConfig(valid());
 
-    expect(config.arachnid.credentialFile).toBe('CREDENTIAL_FILE_PATH');
+    expect(config.arachnid.usernameFile).toBe('USERNAME_FILE_PATH');
+    expect(config.arachnid.passwordFile).toBe('PASSWORD_FILE_PATH');
     expect(config.channel.signingKeyFile).toBe('SIGNING_KEY_FILE_PATH');
     expect(config.arachnid.timeoutMs).toBe(5000);
     expect(config.channel.pollTimeoutMs).toBeGreaterThan(30_000);
@@ -72,7 +73,8 @@ describe('parseConfig', () => {
 
   it('names no default for a file, a host or an address', () => {
     for (const missing of [
-      (c: Record<string, any>) => delete c.arachnid.credentialFile,
+      (c: Record<string, any>) => delete c.arachnid.usernameFile,
+      (c: Record<string, any>) => delete c.arachnid.passwordFile,
       (c: Record<string, any>) => delete c.arachnid.baseUrl,
       (c: Record<string, any>) => delete c.channel.signingKeyFile,
       (c: Record<string, any>) => delete c.audit.file,
@@ -81,7 +83,13 @@ describe('parseConfig', () => {
     ]) {
       expect(() => parseConfig(withChange(missing))).toThrow(ConfigError);
     }
-    expect(refusal(withChange((c) => delete c.arachnid.credentialFile))).toContain('arachnid.credentialFile');
+    expect(refusal(withChange((c) => delete c.arachnid.usernameFile))).toContain('arachnid.usernameFile');
+    expect(refusal(withChange((c) => delete c.arachnid.passwordFile))).toContain('arachnid.passwordFile');
+  });
+
+  it('refuses one file named for both halves of the pair, and the retired single-value setting', () => {
+    expect(refusal(withChange((c) => (c.arachnid.passwordFile = c.arachnid.usernameFile)))).toContain('different files');
+    expect(refusal(withChange((c) => (c.arachnid.credentialFile = 'ANY_PATH')))).toContain('arachnid has an unknown key');
   });
 
   it('refuses an unknown key anywhere, so a misspelt safety setting is not ignored', () => {

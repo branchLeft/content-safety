@@ -28,9 +28,10 @@ RUN npm run build
 # There are no runtime dependencies: pruning leaves only the compiled service.
 RUN npm prune --omit=dev
 
-# No config, credential, signing key or audit file is baked in. All four are
-# bind-mounted at run time and named by --config or SAFETY_SERVICE_CONFIG. The
-# service only dials out, so there is nothing to expose.
+# No config, username file, password file, signing key or audit file is baked
+# in. All five are bind-mounted at run time and named by --config or
+# SAFETY_SERVICE_CONFIG. The service only dials out, so there is nothing to
+# expose.
 # Numeric, so the non-root check does not depend on the base image's /etc/passwd.
 # 1000:1000 is the base image's `node` user.
 USER 1000:1000

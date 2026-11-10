@@ -2,7 +2,7 @@ import { ArachnidPdqClient, type FetchLike } from './arachnid-client.js';
 import { openAuditFile } from './audit-file.js';
 import { JsonLinesAuditSink } from './audit.js';
 import type { ServiceConfig } from './config.js';
-import { readSecretFile } from './credential.js';
+import { basicAuthorization, readSecretFile } from './credential.js';
 import { HostChannel, type Logger } from './host-channel.js';
 import { PdqKnownMaterialCheck } from './pdq-known-material-check.js';
 import { EstatePolicy } from './policy.js';
@@ -24,18 +24,20 @@ export interface RunningService {
 }
 
 /**
- * Reads both secrets and opens the audit file before dialling anything, so
+ * Reads every secret and opens the audit file before dialling anything, so
  * a missing credential stops the process before it asks anyone for anything.
  */
 export async function startService(config: ServiceConfig, deps: StartDeps): Promise<RunningService> {
-  const credential = await readSecretFile(config.arachnid.credentialFile, 'hash source credential');
+  const username = await readSecretFile(config.arachnid.usernameFile, 'hash source username');
+  const password = await readSecretFile(config.arachnid.passwordFile, 'hash source password');
+  const authorization = basicAuthorization(username, password);
   const signingSeed = await readSecretFile(config.channel.signingKeyFile, 'request signing key');
   const signer = new RequestSigner(signingSeed);
   const auditFile = await openAuditFile(config.audit.file);
 
   const client = new ArachnidPdqClient({
     baseUrl: config.arachnid.baseUrl,
-    authorization: () => credential.reveal(),
+    authorization: () => authorization.reveal(),
     ...(deps.fetch === undefined ? {} : { fetch: deps.fetch }),
   });
   const cache = new InMemoryVerdictCache({

@@ -3,7 +3,7 @@
 # scripts/image-smoke.sh <image>
 #
 # 1. No configuration named: exit 2 and exactly one JSON line.
-# 2. A configuration that names no credential file: exit 1, one JSON line that
+# 2. A configuration that names no username file: exit 1, one JSON line that
 #    names the missing setting, and none of the configuration's own text.
 set -eu
 
@@ -57,11 +57,11 @@ run_image docker run --rm \
   --volume "$dir/config.json:/etc/smoke/config.json:ro" \
   --env SAFETY_SERVICE_CONFIG=/etc/smoke/config.json \
   "$image"
-[ "$code" -eq 1 ] || fail "no credential file: expected exit 1, got $code"
-one_json_line || fail "no credential file: expected exactly one JSON line"
-printf '%s' "$output" | grep -q 'arachnid.credentialFile' || fail "no credential file: the refusal did not name the missing setting, so the configuration may not have been read"
+[ "$code" -eq 1 ] || fail "no username file: expected exit 1, got $code"
+one_json_line || fail "no username file: expected exactly one JSON line"
+printf '%s' "$output" | grep -q 'arachnid.usernameFile' || fail "no username file: the refusal did not name the missing setting, so the configuration may not have been read"
 if printf '%s' "$output" | grep -q "$marker"; then
-  fail "no credential file: the output quoted the configuration's contents"
+  fail "no username file: the output quoted the configuration's contents"
 fi
 
 echo "image smoke: both refusals behave as specified"

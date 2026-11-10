@@ -20,8 +20,10 @@ export interface HostConfig {
 export interface ServiceConfig {
   readonly arachnid: {
     readonly baseUrl: string;
-    /** A path. The file holds the whole Authorization header value, read once and never logged. */
-    readonly credentialFile: string;
+    /** A path. One line: the API username, read once and never logged. */
+    readonly usernameFile: string;
+    /** A path to a different file. One line: the API password, read once and never logged. */
+    readonly passwordFile: string;
     readonly timeoutMs: number;
     readonly maxBatchSize?: number;
   };
@@ -78,7 +80,7 @@ export function parseConfig(input: unknown): ServiceConfig {
   noUnknownKeys(root, ['arachnid', 'channel', 'cache', 'audit', 'shutdownGraceMs', 'hosts'], 'config');
 
   const arachnid = object(root.arachnid, 'arachnid');
-  noUnknownKeys(arachnid, ['baseUrl', 'credentialFile', 'timeoutMs', 'maxBatchSize'], 'arachnid');
+  noUnknownKeys(arachnid, ['baseUrl', 'usernameFile', 'passwordFile', 'timeoutMs', 'maxBatchSize'], 'arachnid');
   const channel = object(root.channel, 'channel');
   noUnknownKeys(
     channel,
@@ -100,10 +102,17 @@ export function parseConfig(input: unknown): ServiceConfig {
     throw new ConfigError(`config: cache.negativeTtlMs must be at most ${String(MAX_NEGATIVE_TTL_MS)}`);
   }
 
+  const usernameFile = filePath(arachnid.usernameFile, 'arachnid.usernameFile');
+  const passwordFile = filePath(arachnid.passwordFile, 'arachnid.passwordFile');
+  if (usernameFile === passwordFile) {
+    throw new ConfigError('config: arachnid.usernameFile and arachnid.passwordFile must be different files');
+  }
+
   return {
     arachnid: {
       baseUrl: transportUrl(arachnid.baseUrl, 'arachnid.baseUrl'),
-      credentialFile: filePath(arachnid.credentialFile, 'arachnid.credentialFile'),
+      usernameFile,
+      passwordFile,
       timeoutMs: positiveNumber(arachnid.timeoutMs ?? DEFAULTS.arachnidTimeoutMs, 'arachnid.timeoutMs'),
       ...(arachnid.maxBatchSize === undefined
         ? {}
