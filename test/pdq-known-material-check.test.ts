@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ArachnidPdqClient } from '../src/arachnid-client.js';
+import { ArachnidPdqClient, HashLookupError } from '../src/arachnid-client.js';
 import type { LookupResult, PdqHash, PdqLookup, Verdict, VerdictCache } from '../src/contract.js';
 import { PDQ_CHECK_SOURCE, PdqKnownMaterialCheck } from '../src/pdq-known-material-check.js';
 import { InMemoryVerdictCache } from '../src/verdict-cache.js';
@@ -144,6 +144,57 @@ describe('PdqKnownMaterialCheck with an injected lookup', () => {
   it('yields unavailable when the lookup rejects', async () => {
     const lookup = lookupOf(() => Promise.reject(new Error('down')));
     const check = new PdqKnownMaterialCheck({ lookup, cache: cache(), timeoutMs: 100 });
+    expect((await check.run(hashOf(1))).classification).toBe('unavailable');
+  });
+
+  it('reports a fixed outcome for each way a lookup fails, never the error text', async () => {
+    const reported: string[] = [];
+    const failures = [
+      new HashLookupError('http-401'),
+      new HashLookupError('redirect-refused'),
+      new Error('TEST_SENTINEL_ERROR_TEXT'),
+      Object.assign(new Error('TEST_SENTINEL_ERROR_TEXT'), { name: 'AbortError' }),
+    ];
+    for (const failure of failures) {
+      const lookup = lookupOf(() => Promise.reject(failure));
+      const check = new PdqKnownMaterialCheck({
+        lookup,
+        cache: cache(),
+        timeoutMs: 100,
+        onLookupFailure: (outcome) => reported.push(outcome),
+      });
+      expect((await check.run(hashOf(1))).classification).toBe('unavailable');
+    }
+
+    expect(reported).toEqual(['http-401', 'redirect-refused', 'lookup-error', 'timeout']);
+  });
+
+  it('reports a lookup that outruns the budget as a timeout', async () => {
+    const reported: string[] = [];
+    const lookup = lookupOf(() => new Promise(() => undefined));
+    const check = new PdqKnownMaterialCheck({
+      lookup,
+      cache: cache(),
+      timeoutMs: 30,
+      onLookupFailure: (outcome) => reported.push(outcome),
+    });
+
+    await check.run(hashOf(1));
+
+    expect(reported).toEqual(['timeout']);
+  });
+
+  it('still answers unavailable when the report itself throws', async () => {
+    const lookup = lookupOf(() => Promise.reject(new HashLookupError('http-401')));
+    const check = new PdqKnownMaterialCheck({
+      lookup,
+      cache: cache(),
+      timeoutMs: 100,
+      onLookupFailure: () => {
+        throw new Error('log sink down');
+      },
+    });
+
     expect((await check.run(hashOf(1))).classification).toBe('unavailable');
   });
 

@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   ArachnidPdqClient,
   buildPdqRequestBody,
+  HashLookupError,
   parsePdqResponse,
   PDQ_PATH,
 } from '../src/arachnid-client.js';
 import type { PdqHash } from '../src/contract.js';
 import { hashOf } from './helpers/fixtures.js';
-import { startStubArachnid, type StubArachnid } from './helpers/stub-arachnid.js';
+import { startStubArachnid, STUB_REFUSAL_BODY, type StubArachnid } from './helpers/stub-arachnid.js';
 
 const AUTH = 'PLACEHOLDER_NOT_A_CREDENTIAL';
 
@@ -67,6 +68,33 @@ describe('ArachnidPdqClient against the local stub', () => {
     stub.mode = 'redirect';
     await expect(client.lookup([hashOf(1)], new AbortController().signal)).rejects.toThrow();
     expect(stub.requests.map((r) => r.path)).toEqual([PDQ_PATH]);
+  });
+
+  it('names the cause of a refusal by a fixed outcome: the status, or a refused redirect', async () => {
+    const outcomeOf = async (): Promise<string> => {
+      try {
+        await client.lookup([hashOf(1)], new AbortController().signal);
+      } catch (error) {
+        expect(error).toBeInstanceOf(HashLookupError);
+        return (error as HashLookupError).outcome;
+      }
+      throw new Error('expected a refusal');
+    };
+
+    stub.mode = 'unauthorized';
+    expect(await outcomeOf()).toBe('http-401');
+    stub.mode = 'server-error';
+    expect(await outcomeOf()).toBe('http-503');
+    stub.mode = 'redirect';
+    expect(await outcomeOf()).toBe('redirect-refused');
+  });
+
+  it('puts neither the response body nor the credential in the error it raises', async () => {
+    stub.mode = 'unauthorized';
+    const error = await client.lookup([hashOf(1)], new AbortController().signal).catch((e: unknown) => e as Error);
+
+    expect(JSON.stringify([String(error), (error as Error).message, Object.keys(error)])).not.toContain(STUB_REFUSAL_BODY);
+    expect(String(error)).not.toContain(AUTH);
   });
 
   it('rejects on a body that is not JSON', async () => {

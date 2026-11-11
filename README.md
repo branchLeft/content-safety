@@ -55,7 +55,7 @@ The configuration names five files and the hosts to dial:
 
 - Entrypoint `node dist/bin.js`, as uid:gid 1000:1000 (`USER 1000:1000`). The image exposes no port: the service only dials.
 - The configuration path comes from `--config` or `SAFETY_SERVICE_CONFIG`. The configuration, the username and password files, the signing key and the audit file are bind-mounted at run time; none is baked into the image.
-- The username file, password file, signing key and audit file must be owned by uid 1000 and mode 0600 or tighter. The service refuses a file open to group or others.
+- The username file, password file, signing key and audit file must be owned by uid 1000 and mode 0600 or tighter. The service refuses a file open to group or others. From the password file only one trailing line ending is stripped, so a password with a leading or trailing space is sent as written; the username and the signing key lose every surrounding space.
 - Exit codes: 0 stopped cleanly, 1 refused to start, 2 no configuration named.
 - Images are tagged by commit only, never `latest`, and pulled by the digest the push job prints. `gh attestation verify` checks the build provenance.
 

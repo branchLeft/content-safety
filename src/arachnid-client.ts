@@ -21,6 +21,22 @@ const CLASSIFICATIONS: ReadonlySet<string> = new Set<Classification>([
 ]);
 const MATCH_TYPES: ReadonlySet<string> = new Set<MatchType>(['exact', 'near']);
 
+/**
+ * A lookup the hash source refused, named by a fixed outcome: `http-<status>`
+ * or `redirect-refused`. It carries no header, no body and no URL, so it is
+ * safe to log whole.
+ */
+export class HashLookupError extends Error {
+  constructor(readonly outcome: string) {
+    super(
+      outcome.startsWith('http-')
+        ? `hash lookup answered HTTP ${outcome.slice('http-'.length)}`
+        : 'hash lookup was redirected and the redirect was refused'
+    );
+    this.name = 'HashLookupError';
+  }
+}
+
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
 export interface ArachnidPdqClientOptions {
@@ -78,6 +94,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** `fetch` reports `redirect: 'error'` as a TypeError whose cause says so; the stub tests run it for real. */
+function wasRedirectRefused(error: unknown): boolean {
+  return error instanceof TypeError && error.cause instanceof Error && error.cause.message === 'unexpected redirect';
+}
+
 export class ArachnidPdqClient implements PdqLookup {
   readonly #url: string;
   readonly #authorization: () => string;
@@ -90,19 +111,24 @@ export class ArachnidPdqClient implements PdqLookup {
   }
 
   async lookup(hashes: readonly PdqHash[], signal: AbortSignal): Promise<ReadonlyMap<PdqHash, LookupResult>> {
-    const response = await this.#fetch(this.#url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'application/json',
-        authorization: this.#authorization(),
-      },
-      body: buildPdqRequestBody(hashes),
-      signal,
-      redirect: 'error',
-    });
+    let response: Response;
+    try {
+      response = await this.#fetch(this.#url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json',
+          authorization: this.#authorization(),
+        },
+        body: buildPdqRequestBody(hashes),
+        signal,
+        redirect: 'error',
+      });
+    } catch (error) {
+      throw wasRedirectRefused(error) ? new HashLookupError('redirect-refused') : error;
+    }
     if (!response.ok) {
-      throw new Error(`hash lookup answered HTTP ${String(response.status)}`);
+      throw new HashLookupError(`http-${String(response.status)}`);
     }
     return parsePdqResponse(JSON.parse(await readBoundedText(response, MAX_RESPONSE_BYTES)), hashes);
   }

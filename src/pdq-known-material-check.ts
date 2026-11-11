@@ -1,4 +1,5 @@
 import type { BatchCheck, PdqHash, PdqLookup, Verdict, VerdictCache } from './contract.js';
+import { HashLookupError } from './arachnid-client.js';
 import { assertBudget, millisecondsRemaining, withDeadline } from './deadline.js';
 
 export const PDQ_CHECK_SOURCE = 'arachnid-shield-pdq';
@@ -18,6 +19,12 @@ export interface PdqKnownMaterialCheckOptions {
    * a write past it is dropped.
    */
   readonly cacheTimeoutMs?: number;
+  /**
+   * Called once for each lookup that fails, with a fixed outcome (`http-<status>`, `redirect-refused`,
+   * `timeout` or `lookup-error`) and never the error text, so it is safe to log. The hashes are
+   * `unavailable` either way; this only says why. A throw from it is ignored.
+   */
+  readonly onLookupFailure?: (outcome: string) => void;
 }
 
 const DEFAULT_MAX_BATCH = 100;
@@ -36,6 +43,7 @@ export class PdqKnownMaterialCheck implements BatchCheck<PdqHash> {
   readonly #timeoutMs: number;
   readonly #cacheTimeoutMs: number;
   readonly #maxBatch: number;
+  readonly #onLookupFailure: ((outcome: string) => void) | undefined;
 
   constructor(options: PdqKnownMaterialCheckOptions) {
     if (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0) {
@@ -50,6 +58,7 @@ export class PdqKnownMaterialCheck implements BatchCheck<PdqHash> {
     this.#timeoutMs = options.timeoutMs;
     this.#cacheTimeoutMs = assertBudget('cacheTimeoutMs', options.cacheTimeoutMs ?? DEFAULT_CACHE_TIMEOUT_MS);
     this.#maxBatch = maxBatch;
+    this.#onLookupFailure = options.onLookupFailure;
   }
 
   async run(subject: PdqHash): Promise<Verdict> {
@@ -99,7 +108,10 @@ export class PdqKnownMaterialCheck implements BatchCheck<PdqHash> {
     });
     try {
       const answered = await Promise.race([this.#lookup.lookup(hashes, controller.signal), timedOut]);
-      if (answered === null) return hashes.map(unavailable);
+      if (answered === null) {
+        this.#report('timeout');
+        return hashes.map(unavailable);
+      }
       return hashes.map((hash) => {
         const result = answered.get(hash);
         if (result === undefined) return unavailable(hash);
@@ -110,10 +122,19 @@ export class PdqKnownMaterialCheck implements BatchCheck<PdqHash> {
         };
         return result.matchType === undefined ? verdict : { ...verdict, matchType: result.matchType };
       });
-    } catch {
+    } catch (error) {
+      this.#report(outcomeOf(error));
       return hashes.map(unavailable);
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  #report(outcome: string): void {
+    try {
+      this.#onLookupFailure?.(outcome);
+    } catch {
+      // A log that cannot be written must not change a verdict.
     }
   }
 
@@ -136,6 +157,12 @@ export class PdqKnownMaterialCheck implements BatchCheck<PdqHash> {
       // A cache that cannot store only costs a repeat lookup next time.
     }
   }
+}
+
+function outcomeOf(error: unknown): string {
+  if (error instanceof HashLookupError) return error.outcome;
+  if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) return 'timeout';
+  return 'lookup-error';
 }
 
 function unavailable(hash: PdqHash): Verdict {
