@@ -184,6 +184,15 @@ def load_scores(path: Path, manifest: Manifest) -> dict[str, float]:
 
 
 def validate_scores(scores: dict[str, float], manifest: Manifest) -> None:
+    """Refuse scores that do not cover the manifest exactly, or that are not finite.
+
+    Every path into the measurement goes through here, the library path included,
+    so a non-finite score (a NaN, which compares false against any threshold and
+    would be counted as below it) can never reach a rate.
+
+    Raises:
+        ScoresError: the ids differ from the manifest's, or a score is not finite.
+    """
     expected = {item.item_id for item in manifest.items}
     missing = sorted(expected - scores.keys())
     extra = sorted(scores.keys() - expected)
@@ -191,3 +200,6 @@ def validate_scores(scores: dict[str, float], manifest: Manifest) -> None:
         raise ScoresError(f"{len(missing)} manifest items have no score, first: {missing[0]!r}")
     if extra:
         raise ScoresError(f"{len(extra)} scores name no manifest item, first: {extra[0]!r}")
+    for item_id in sorted(scores):
+        if not math.isfinite(scores[item_id]):
+            raise ScoresError(f"the score for {item_id!r} must be finite")

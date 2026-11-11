@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import math
 import unittest
 
 from corpus_eval import EvalError, ScoresError, evaluate, load_manifest, run_check
@@ -24,6 +25,17 @@ class KeywordCheck:
 
     def score(self, text: str) -> float:
         return 1.0 if self._marker in text else 0.0
+
+
+class NonFiniteCheck(KeywordCheck):
+    """A check that cannot score a harmful item and returns a non-finite value for it."""
+
+    def __init__(self, value: float) -> None:
+        super().__init__("synthetic-check", "HARM_TEXT")
+        self._value = value
+
+    def score(self, text: str) -> float:
+        return self._value if self._marker in text else 0.0
 
 
 class RunCheckTest(unittest.TestCase):
@@ -53,6 +65,13 @@ class RunCheckTest(unittest.TestCase):
         del scores["n01"]
         with self.assertRaises(ScoresError):
             evaluate(self.manifest, scores, 0.1, "point")
+
+    def test_a_non_finite_score_is_refused_on_the_library_path(self) -> None:
+        for bad in (math.nan, math.inf, -math.inf):
+            with self.subTest(score=bad):
+                scores = run_check(self.manifest, NonFiniteCheck(bad))
+                with self.assertRaisesRegex(ScoresError, "finite"):
+                    evaluate(self.manifest, scores, 0.1, "point")
 
 
 class ReportTest(unittest.TestCase):

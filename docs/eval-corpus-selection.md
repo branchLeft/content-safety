@@ -106,7 +106,7 @@ Supplementary, wrong domain: the OpenAI moderation samples (public text, eight c
 
 ## Recommendation
 
-**First honest run: Civil Comments, Dynamically Generated Hate Speech and Measuring Hate Speech, plus a stratified sample from CourtListener and from Global Voices.** All are open without a request, none holds an image, and together they give per-check negatives and positives for threats, incitement, harassment and sexual content. Reason: the cleanest licences found (CC0 and CC BY, no gate, no agreement), the largest labelled volumes, and the only two sources of challenging-topic journalism and court text that are openly reusable. The platform needs an answer it can publish, and a published number must rest on terms that allow publishing.
+**First honest run: Civil Comments, Dynamically Generated Hate Speech, Measuring Hate Speech, HateCheck's contrast cases (as negatives), the Contextual Abuse Dataset, the YouTube Spam Collection, plus a stratified sample from CourtListener and from Global Voices.** This is exactly the set the table below uses. Waiting and not in the run: the THREAT specialist corpus (licence unconfirmed), Counter (a separate legal decision), and any larger spam corpus (not yet read). All are open without a request, none holds an image, and together they give per-check negatives and positives for threats, incitement, harassment, sexual content and spam. Reason: the cleanest licences found (CC0 and CC BY, no gate, no agreement), the largest labelled volumes, and the only two sources of challenging-topic journalism and court text that are openly reusable. The platform needs an answer it can publish, and a published number must rest on terms that allow publishing.
 
 | Check | Recommendation | Reason |
 |---|---|---|
