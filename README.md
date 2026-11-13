@@ -2,7 +2,7 @@
 
 The safety service for the branchLeft Ghost platform. It checks uploaded media against known-abuse hash lists (Arachnid Shield) before publication. It is designed to be reusable by other organisations later, so it carries no Ghost-specific assumptions.
 
-**Status: the service core and its transport, tested locally against stubs, not deployed. It is intended to ship as a digest-pinned, attested container image (`Dockerfile`, `.github/workflows/image.yml`); no image is built or attested until the first push job on `main` is green.** This repository holds no credential and no test touches a live service. The service reads its credential from a file on the host that runs it.
+**Status: the service core and its transport, tested locally against stubs, not deployed. It ships as a digest-pinned, attested container image (`Dockerfile`, `.github/workflows/image.yml`); the image workflow has run green on push to `main` since 2026-11-07.** This repository holds no credential and no test touches a live service. The service reads its credential from a file on the host that runs it.
 
 ## What is here
 
