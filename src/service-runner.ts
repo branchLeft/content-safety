@@ -29,7 +29,9 @@ export interface RunningService {
  */
 export async function startService(config: ServiceConfig, deps: StartDeps): Promise<RunningService> {
   const username = await readSecretFile(config.arachnid.usernameFile, 'hash source username');
-  const password = await readSecretFile(config.arachnid.passwordFile, 'hash source password');
+  const password = await readSecretFile(config.arachnid.passwordFile, 'hash source password', {
+    stripLineEndingOnly: true,
+  });
   const authorization = basicAuthorization(username, password);
   const signingSeed = await readSecretFile(config.channel.signingKeyFile, 'request signing key');
   const signer = new RequestSigner(signingSeed);
@@ -48,6 +50,7 @@ export async function startService(config: ServiceConfig, deps: StartDeps): Prom
     lookup: client,
     cache,
     timeoutMs: config.arachnid.timeoutMs,
+    onLookupFailure: (outcome) => deps.log('hash-lookup-failed', { outcome }),
     ...(config.arachnid.maxBatchSize === undefined ? {} : { maxBatchSize: config.arachnid.maxBatchSize }),
   });
   const service = new SafetyService({

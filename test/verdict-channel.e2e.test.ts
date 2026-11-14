@@ -5,6 +5,7 @@ import { admits, parseVerdictsBody } from '../src/verdict-schema.js';
 import { hashOf } from './helpers/fixtures.js';
 import { makeSigningKey } from './helpers/keys.js';
 import { SENTINEL_AUTHORIZATION, SENTINEL_PASSWORD, SENTINEL_USERNAME, startRig, type Rig } from './helpers/rig.js';
+import { STUB_REFUSAL_BODY } from './helpers/stub-arachnid.js';
 
 let rig: Rig | undefined;
 
@@ -198,5 +199,59 @@ describe('the verdict channel, end to end, with a host that only listens', () =>
     await service.stop();
 
     expect(Date.now() - started).toBeLessThan(1000);
+  });
+});
+
+describe('the credential and a degraded round, end to end', () => {
+  const outcomesLogged = (r: Rig): string[] =>
+    r.logs
+      .map((line) => JSON.parse(line) as { event: string; outcome?: string })
+      .filter((entry) => entry.event === 'hash-lookup-failed')
+      .map((entry) => entry.outcome ?? '');
+
+  it('sends a password with a leading and a trailing space exactly as it was written', async () => {
+    const password = ' TEST_SENTINEL_PASS_EDGES ';
+    rig = await startRig({ password });
+    await rig.start();
+
+    await rig.host.submit(hashOf(1));
+
+    const expected = `Basic ${Buffer.from(`${SENTINEL_USERNAME}:${password}`, 'utf8').toString('base64')}`;
+    expect(rig.arachnid.requests[0]?.authorization).toBe(expected);
+  });
+
+  it('logs the status on a refused lookup and says redirect-refused for a refused redirect', async () => {
+    rig = await startRig();
+    await rig.start();
+
+    rig.arachnid.mode = 'unauthorized';
+    await rig.host.submit(hashOf(1));
+    rig.arachnid.mode = 'redirect';
+    await rig.host.submit(hashOf(2));
+
+    const outcomes = outcomesLogged(rig);
+    expect(outcomes).toContain('http-401');
+    expect(outcomes).toContain('redirect-refused');
+  });
+
+  it('logs no credential, header or response body on a refused lookup', async () => {
+    rig = await startRig();
+    await rig.start();
+    rig.arachnid.mode = 'unauthorized';
+
+    await rig.host.submit(hashOf(1));
+
+    expect(outcomesLogged(rig)).toContain('http-401');
+    const logged = rig.logs.join('\n');
+    for (const secretPart of [
+      SENTINEL_USERNAME,
+      SENTINEL_PASSWORD,
+      SENTINEL_AUTHORIZATION,
+      SENTINEL_AUTHORIZATION.slice('Basic '.length),
+      STUB_REFUSAL_BODY,
+      'authorization',
+    ]) {
+      expect(logged.toLowerCase()).not.toContain(secretPart.toLowerCase());
+    }
   });
 });

@@ -62,7 +62,7 @@ No query string and no body. The host holds the request open until it has hashes
 - `audited: false` means no record of the decision was written; the decision stands.
 - **`unavailable` means "no answer": the host holds the upload and keeps the hash queued to be offered again.** Every hash in a batch that the service accepted is answered, `unavailable` included; a batch is never dropped silently. A hash the service could not read is simply absent, and the host offers it again when its lease on the batch ends.
 - 204, and only 204, means the host took the verdicts. 409 means the host no longer holds that batch (its lease ended); the service does not retry it. Any other status, a 200 included, is a failure and the service backs off.
-- **A batch answered wholly `unavailable` is counted as degraded, and the service backs off exactly as for a failure.** Without that, a hash source that is down and a host that offers its hashes again at once would make a storm of requests against the source. Pacing the re-offer is the host's to build too: the contract asks a host to wait before it offers an `unavailable` hash again.
+- **A batch answered wholly `unavailable` is counted as degraded, and the service backs off exactly as for a failure.** Without that, a hash source that is down and a host that offers its hashes again at once would make a storm of requests against the source. Each failed lookup logs `hash-lookup-failed` with one `outcome`: `http-<status>` (a 401 is `http-401`), `redirect-refused`, `timeout` or `lookup-error`. The line carries no credential, header, URL or response body. Pacing the re-offer is the host's to build too: the contract asks a host to wait before it offers an `unavailable` hash again.
 
 ## Reading a verdicts body
 

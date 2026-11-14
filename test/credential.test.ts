@@ -80,6 +80,59 @@ describe('readSecretFile', () => {
   });
 });
 
+describe('readSecretFile keeping the edges of a password', () => {
+  const EDGE = { stripLineEndingOnly: true } as const;
+
+  async function read(content: string): Promise<string> {
+    return (await readSecretFile(await fileWith(content), 'test secret', EDGE)).reveal();
+  }
+
+  async function refusalWith(content: string): Promise<string> {
+    try {
+      await readSecretFile(await fileWith(content), 'test secret', EDGE);
+    } catch (error) {
+      expect(error).toBeInstanceOf(SecretFileError);
+      return (error as Error).message;
+    }
+    throw new Error('expected a refusal');
+  }
+
+  it('strips one trailing newline and nothing else, so a leading or trailing space survives', async () => {
+    expect(await read(` ${VALUE} \n`)).toBe(` ${VALUE} `);
+    expect(await read(`${VALUE}  \r\n`)).toBe(`${VALUE}  `);
+    expect(await read(`  ${VALUE}`)).toBe(`  ${VALUE}`);
+    expect(await read(`${VALUE}\n`)).toBe(VALUE);
+  });
+
+  it('still trims everything when no option is given, as the username does', async () => {
+    expect((await readSecretFile(await fileWith(` ${VALUE} \n`), 'test secret')).reveal()).toBe(VALUE);
+  });
+
+  it('fails closed on a file that is empty once its line ending is gone', async () => {
+    expect(await refusalWith('')).toContain('is empty');
+    expect(await refusalWith('\n')).toContain('is empty');
+    expect(await refusalWith('\r\n')).toContain('is empty');
+    expect(await refusalWith('   \n')).toContain('is empty');
+  });
+
+  it('fails closed on more than one line, and never quotes the secret in the refusal', async () => {
+    for (const content of [`${VALUE}\nsecond`, `${VALUE}\n\n`, `${VALUE}\r`]) {
+      const message = await refusalWith(content);
+
+      expect(message).toContain('single line');
+      expect(message).not.toContain(VALUE);
+    }
+  });
+
+  it('hands the password on intact, so the header carries every space', async () => {
+    const password = await readSecretFile(await fileWith(` ${VALUE} \n`), 'test secret', EDGE);
+
+    const header = basicAuthorization(new Secret('TEST_SENTINEL_USER'), password);
+
+    expect(Buffer.from(header.reveal().slice('Basic '.length), 'base64').toString('utf8')).toBe(`TEST_SENTINEL_USER: ${VALUE} `);
+  });
+});
+
 describe('readSecretFile and a path that is not the file itself', () => {
   it('refuses a symbolic link, even to an owner-only file', async () => {
     const target = join(dir, 'real-secret');

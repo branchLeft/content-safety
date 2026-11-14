@@ -65,11 +65,24 @@ export function basicAuthorization(username: Secret, password: Secret): Secret {
   return new Secret(`Basic ${pair.toString('base64')}`);
 }
 
+export interface ReadSecretFileOptions {
+  /**
+   * Strip one trailing line ending and nothing else, for a value whose leading
+   * and trailing spaces are part of it (a password). Left out, every
+   * surrounding space is trimmed, which is right for a name or a key.
+   */
+  readonly stripLineEndingOnly?: boolean;
+}
+
 /**
  * Never an environment value, which children inherit and diagnostics show.
  * A file readable by anyone but its owner is refused outright.
  */
-export async function readSecretFile(path: string, label: string): Promise<Secret> {
+export async function readSecretFile(
+  path: string,
+  label: string,
+  options: ReadSecretFileOptions = {}
+): Promise<Secret> {
   if (path.length === 0) throw new SecretFileError(`${label}: no file path is configured`);
   // Opened once, and every check and the read go through that one
   // descriptor: a path checked and then read again can be swapped between
@@ -97,8 +110,9 @@ export async function readSecretFile(path: string, label: string): Promise<Secre
   } finally {
     await handle.close();
   }
-  const value = text.trim();
-  if (value.length === 0) throw new SecretFileError(`${label}: ${path} is empty`);
+  const value = options.stripLineEndingOnly === true ? text.replace(/\r?\n$/, '') : text.trim();
+  // A value of nothing but spaces is a blank file, not a password.
+  if (value.trim().length === 0) throw new SecretFileError(`${label}: ${path} is empty`);
   // A newline inside a header value is how one header becomes two.
   if (/[\r\n\0]/.test(value)) throw new SecretFileError(`${label}: ${path} must hold a single line`);
   return new Secret(value);

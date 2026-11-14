@@ -11,7 +11,10 @@ export interface StubEntry {
   readonly match_type?: string;
 }
 
-export type StubMode = 'answer' | 'never-answer' | 'server-error' | 'redirect' | 'not-json';
+export type StubMode = 'answer' | 'never-answer' | 'server-error' | 'redirect' | 'not-json' | 'unauthorized';
+
+/** What the stub's 401 carries, so a test can prove a response body is never logged. */
+export const STUB_REFUSAL_BODY = 'TEST_SENTINEL_REFUSAL_BODY';
 
 export interface RecordedRequest {
   readonly method: string;
@@ -88,6 +91,10 @@ function respond(
   }
   if (state.mode === 'server-error') {
     res.writeHead(503).end();
+    return;
+  }
+  if (state.mode === 'unauthorized') {
+    res.writeHead(401, { 'content-type': 'text/plain' }).end(STUB_REFUSAL_BODY);
     return;
   }
   if (state.mode === 'redirect') {
